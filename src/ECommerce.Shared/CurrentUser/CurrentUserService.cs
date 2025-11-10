@@ -9,7 +9,7 @@ public static class CurrentUser
 {
     // Initialize this once at startup with the registered IHttpContextAccessor.
     public static void Initialize(IHttpContextAccessor accessor) => HttpContextAccessor = accessor;
-    public static IHttpContextAccessor? HttpContextAccessor { get; private set; }
+    public static IHttpContextAccessor? HttpContextAccessor { get; set; }
 
     // Claim keys
     private const string SubClaim = "sub";

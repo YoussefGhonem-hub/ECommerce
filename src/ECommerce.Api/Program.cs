@@ -1,11 +1,13 @@
 using ECommerce.Domain.Entities;
 using ECommerce.Infrastructure;
-using FluentValidation;
+using ECommerce.Infrastructure.Persistence;
+using ECommerce.Shared.CurrentUser;
 using FluentValidation.AspNetCore;
-using MediatR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using RIS.Application;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,11 +15,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers().AddFluentValidation();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddApplicationServices();
 
-
-builder.Services.AddValidatorsFromAssembly(typeof(ECommerce.Application.Common.Result<>).Assembly);
-ECommerce.Application.Common.Mappings.MappingConfig.Register();
-builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ECommerce.Application.Common.Behaviors.ValidationBehavior<,>));
 
 builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -51,25 +50,18 @@ builder.Services.AddCors(o => o.AddPolicy("default", p =>
 
 var app = builder.Build();
 
+// Apply migrations and seed ONCE (remove EnsureCreated)
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
-    var db = services.GetRequiredService<ECommerce.Infrastructure.Persistence.ApplicationDbContext>();
-    db.Database.EnsureCreated();
-    var userManager = services.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<ApplicationUser>>();
-    var roleManager = services.GetRequiredService<Microsoft.AspNetCore.Identity.RoleManager<ApplicationRole>>();
-    await ECommerce.Infrastructure.Persistence.AppDbContextSeed.SeedAsync(db, userManager, roleManager);
+    var db = services.GetRequiredService<ApplicationDbContext>();
+
+    await db.Database.MigrateAsync();
+
+    var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+    var roleManager = services.GetRequiredService<RoleManager<ApplicationRole>>();
+    await AppDbContextSeed.SeedAsync(db, userManager, roleManager);
 }
-
-
-// apply migrations & seed
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<ECommerce.Infrastructure.Persistence.ApplicationDbContext>();
-    db.Database.Migrate();
-    await ECommerce.Infrastructure.Persistence.ApplicationDbContextSeed.SeedAsync(scope.ServiceProvider);
-}
-
 
 app.UseSwagger();
 app.UseSwaggerUI(c => { c.SwaggerEndpoint("/swagger/v1/swagger.json", "ECommerce API v1"); c.RoutePrefix = string.Empty; });
@@ -83,5 +75,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+CurrentUser.Initialize(app.Services.GetRequiredService<IHttpContextAccessor>());
+
 
 app.Run();
