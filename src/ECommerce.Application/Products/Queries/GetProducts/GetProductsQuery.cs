@@ -5,7 +5,14 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Application.Products.Queries.GetProducts;
 
-public record GetProductsQuery(string? Search, Guid? CategoryId, int Page = 1, int PageSize = 20) : IRequest<List<Product>>;
+public class GetProductsQuery : IRequest<List<Product>>
+{
+    public string? Search { get; set; }
+    public Guid? CategoryId { get; set; }
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+
+}
 public class GetProductsHandler : IRequestHandler<GetProductsQuery, List<Product>>
 {
     private readonly ApplicationDbContext _context;

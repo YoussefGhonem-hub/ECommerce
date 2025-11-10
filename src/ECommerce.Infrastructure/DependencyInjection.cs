@@ -1,6 +1,8 @@
 using ECommerce.Domain.Entities;
+using ECommerce.Infrastructure.Files;
 using ECommerce.Infrastructure.Identity;
 using ECommerce.Infrastructure.Persistence;
+using ECommerce.Shared.Storage;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -17,10 +19,8 @@ public static class DependencyInjection
                 configuration.GetConnectionString("DefaultConnection"),
                 sql => sql.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName)));
 
-        // Expose EF context via application interface (used across handlers)
         services.AddScoped<ApplicationDbContext>();
 
-        // Identity for APIs with custom role (Guid keys) and SignInManager
         services.AddIdentityCore<ApplicationUser>(options =>
         {
             options.Password.RequireDigit = false;
@@ -28,16 +28,18 @@ public static class DependencyInjection
             options.Password.RequireUppercase = false;
             options.Password.RequireNonAlphanumeric = false;
         })
-        .AddRoles<ApplicationRole>()                       // use your ApplicationRole : IdentityRole<Guid>
+        .AddRoles<ApplicationRole>()
         .AddEntityFrameworkStores<ApplicationDbContext>()
-        .AddSignInManager()                                // REQUIRED for SignInManager<ApplicationUser>
+        .AddSignInManager()
         .AddDefaultTokenProviders();
 
         services.AddHttpContextAccessor();
 
-        // JWT options + token service
         services.Configure<JwtSettings>(configuration.GetSection(nameof(JwtSettings)));
         services.AddScoped<ITokenService, TokenService>();
+
+        // File storage
+        services.AddScoped<IFileStorage, LocalFileStorage>();
 
         return services;
     }

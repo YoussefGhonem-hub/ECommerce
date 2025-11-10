@@ -14,6 +14,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
 
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductImage> ProductImages => Set<ProductImage>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<Cart> Carts => Set<Cart>();
@@ -37,11 +38,28 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
         return base.SaveChangesAsync(cancellationToken);
     }
 
-
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
         modelBuilder.GetOnlyNotDeletedEntities();
+
+        // Product -> ProductImages
+        modelBuilder.Entity<ProductImage>()
+            .HasOne(pi => pi.Product)
+            .WithMany(p => p.Images)
+            .HasForeignKey(pi => pi.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Ensure only one IsMain per product using filtered unique index (SQL Server)
+        modelBuilder.Entity<ProductImage>()
+            .HasIndex(pi => new { pi.ProductId, pi.IsMain })
+            .HasFilter("[IsMain] = 1")
+            .IsUnique();
+
+        modelBuilder.Entity<ProductImage>()
+            .Property(pi => pi.Path)
+            .IsRequired()
+            .HasMaxLength(512);
     }
 }

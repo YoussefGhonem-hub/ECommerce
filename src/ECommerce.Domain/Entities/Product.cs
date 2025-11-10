@@ -15,7 +15,10 @@ public class Product : BaseAuditableEntity
     public int StockQuantity { set; get; }
     public bool AllowBackorder { get; set; }
     public string? Brand { get; set; }
-    public string? ImageUrl { get; set; }
     public string? Color { get; set; }
     public double AverageRating { get; set; }
+
+    public ICollection<ProductImage> Images { get; set; } = new List<ProductImage>();
+
+    public string? MainImagePath => Images.FirstOrDefault(i => i.IsMain)?.Path;
 }

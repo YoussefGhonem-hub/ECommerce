@@ -1,5 +1,5 @@
-using ECommerce.Application.Features.Products.Commands.CreateProduct;
-using ECommerce.Application.Features.Products.Queries.GetProducts;
+using ECommerce.Application.Products.Commands;
+using ECommerce.Application.Products.Queries.GetProducts;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,9 +18,9 @@ public class ProductsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> Get([FromQuery] string? search, [FromQuery] Guid? categoryId, [FromQuery] decimal? minPrice, [FromQuery] decimal? maxPrice, [FromQuery] string? color, [FromQuery] bool bestRating = false, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 20)
+    public async Task<IActionResult> Get([FromQuery] GetProductsQuery getProductsQuery)
     {
-        var result = await _mediator.Send(new GetProductsQuery(search, categoryId, minPrice, maxPrice, color, bestRating, pageNumber, pageSize));
+        var result = await _mediator.Send(getProductsQuery);
         return Ok(result);
     }
 

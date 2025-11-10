@@ -1,5 +1,3 @@
-using ECommerce.Application.Features.Categories.DTOs;
-using ECommerce.Application.Features.Products.DTOs;
 using ECommerce.Application.Orders.Queries.GetMyOrders;
 using ECommerce.Domain.Entities;
 using Mapster;
@@ -10,8 +8,8 @@ public static class MappingConfig
 {
     public static void Register()
     {
-        TypeAdapterConfig<Product, ProductDto>.NewConfig();
-        TypeAdapterConfig<Category, CategoryDto>.NewConfig();
+        //TypeAdapterConfig<Product, ProductDto>.NewConfig();
+        //TypeAdapterConfig<Category, CategoryDto>.NewConfig();
         TypeAdapterConfig<Order, OrderDto>.NewConfig()
             .Map(d => d.Items, s => s.Items);
         TypeAdapterConfig<OrderItem, OrderItemDto>.NewConfig();
