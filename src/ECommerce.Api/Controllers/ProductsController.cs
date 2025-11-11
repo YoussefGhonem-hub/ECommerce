@@ -1,4 +1,5 @@
 using ECommerce.Application.Products.Commands;
+using ECommerce.Application.Products.Queries.GetProductById;
 using ECommerce.Application.Products.Queries.GetProducts;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -21,7 +22,14 @@ public class ProductsController : ControllerBase
     public async Task<IActionResult> Get([FromQuery] GetProductsQuery getProductsQuery)
     {
         var result = await _mediator.Send(getProductsQuery);
-        return Ok(result);
+        return result.Succeeded ? Ok(result) : BadRequest(result);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetById(Guid id)
+    {
+        var result = await _mediator.Send(new GetProductByIdQuery(id));
+        return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 
     [HttpPost]
