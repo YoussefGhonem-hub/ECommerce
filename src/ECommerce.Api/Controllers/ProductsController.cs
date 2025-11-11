@@ -26,7 +26,7 @@ public class ProductsController : ControllerBase
 
     [HttpPost]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Create(CreateProductCommand command)
+    public async Task<IActionResult> Create([FromForm] CreateProductCommand command)
     {
         var result = await _mediator.Send(command);
         return result.Succeeded ? Ok(result) : BadRequest(result);
