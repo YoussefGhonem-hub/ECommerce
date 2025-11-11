@@ -16,6 +16,7 @@ public class Product : BaseAuditableEntity
     public bool AllowBackorder { get; set; }
     public bool IsInWishlist { get; set; } = false;
     public bool IsInCart { get; set; } = false;
+    public bool HasFreeShipping { get; set; } = false;
     public string? Brand { get; set; }
     public string? Color { get; set; }
     public double AverageRating { get; set; }
