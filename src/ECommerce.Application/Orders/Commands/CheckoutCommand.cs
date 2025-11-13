@@ -6,7 +6,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Application.Orders.Commands;
 
-public record CheckoutCommand(Guid UserId, Guid ShippingAddressId, string? CouponCode = null, Guid? ShippingMethodId = null) : IRequest<Result<Guid>>;
+// Add optional attribute selections per cart item
+public record CheckoutCommand(
+    Guid UserId,
+    Guid ShippingAddressId,
+    string? CouponCode = null,
+    Guid? ShippingMethodId = null,
+    IReadOnlyList<OrderItemSelectionDto>? ItemSelections = null
+) : IRequest<Result<Guid>>;
+
+// Per-cart-item attribute selections
+public record OrderItemSelectionDto(Guid CartItemId, IReadOnlyList<SelectedAttributeDto> Attributes);
+// Attribute + optional value (for attributes with a predefined value list)
+public record SelectedAttributeDto(Guid AttributeId, Guid? ValueId);
 
 public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Guid>>
 {
@@ -33,7 +45,7 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
             // Load user cart with items and products
             var cart = await _context.Carts
                 .Include(c => c.Items)
-                .ThenInclude(i => i.Product)
+                    .ThenInclude(i => i.Product)
                 .FirstOrDefaultAsync(c => c.UserId == request.UserId, cancellationToken);
 
             if (cart is null || cart.Items.Count == 0)
@@ -50,7 +62,6 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
             Coupon? coupon = null;
             if (!string.IsNullOrWhiteSpace(request.CouponCode))
             {
-                // NOTE: Requires DbSet<Coupon> on IApplicationDbContext
                 coupon = await _context.Set<Coupon>()
                     .FirstOrDefaultAsync(c => c.Code == request.CouponCode, cancellationToken);
 
@@ -62,6 +73,29 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
                     return Result<Guid>.Failure("Coupon usage limit reached.");
             }
 
+            // Preload allowed attribute mappings for involved products (for validation + snapshot names)
+            var productIds = cart.Items.Select(i => i.ProductId).Distinct().ToList();
+
+            var allowedMappings = await _context.ProductAttributeMappings
+                .Where(m => productIds.Contains(m.ProductId))
+                .Select(m => new
+                {
+                    m.ProductId,
+                    m.ProductAttributeId,
+                    m.ProductAttributeValueId,
+                    AttributeName = m.ProductAttribute.Name,
+                    Value = m.ProductAttributeValue != null ? m.ProductAttributeValue.Value : null
+                })
+                .ToListAsync(cancellationToken);
+
+            // Build a lookup to speed up validation
+            var allowedLookup = allowedMappings
+                .GroupBy(a => a.ProductId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.ToList()
+                );
+
             // Validate stock and compute totals; set unit prices from current product price
             decimal subTotal = 0m;
             foreach (var item in cart.Items)
@@ -69,7 +103,6 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
                 if (item.Product is null)
                     return Result<Guid>.Failure("One or more products no longer exist.");
 
-                // Stock check (allow backorder if configured)
                 var available = item.Product.StockQuantity;
                 var allowBackorder = item.Product.AllowBackorder;
                 if (!allowBackorder && available < item.Quantity)
@@ -100,7 +133,11 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
 
             var total = subTotal - discount + shippingCost;
 
-            // Create order
+            // Normalize selections by CartItemId for quick access
+            var selectionsByCartItemId = (request.ItemSelections ?? Array.Empty<OrderItemSelectionDto>())
+                .ToDictionary(s => s.CartItemId, s => s.Attributes);
+
+            // Create order with items and selected attributes
             var order = new Order
             {
                 UserId = request.UserId,
@@ -112,19 +149,59 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
                 ShippingMethodId = request.ShippingMethodId
             };
 
-            order.Items = cart.Items.Select(ci =>
+            var orderItems = new List<OrderItem>();
+
+            foreach (var ci in cart.Items)
             {
                 var unitPrice = ci.Product!.Price;
-                var lineTotal = unitPrice * ci.Quantity;
 
-                return new OrderItem
+                var oi = new OrderItem
                 {
                     OrderId = order.Id,
                     ProductId = ci.ProductId,
                     Quantity = ci.Quantity,
                     UnitPrice = unitPrice,
                 };
-            }).ToList();
+
+                // Attach selected attributes (if provided) and validate against allowed mappings for this product
+                if (selectionsByCartItemId.TryGetValue(ci.Id, out var selectedAttrs) && selectedAttrs is not null && selectedAttrs.Count > 0)
+                {
+                    // Avoid duplicates by AttributeId (keep first occurrence)
+                    var byAttr = selectedAttrs
+                        .GroupBy(a => a.AttributeId)
+                        .Select(g => g.First());
+
+                    if (!allowedLookup.TryGetValue(ci.ProductId, out var allowedForProduct))
+                        return Result<Guid>.Failure($"No attributes are defined for product '{ci.Product.NameEn}' but selections were supplied.");
+
+                    foreach (var sel in byAttr)
+                    {
+                        // Validate pair (AttributeId, ValueId) belongs to this product
+                        var match = allowedForProduct.FirstOrDefault(a =>
+                            a.ProductAttributeId == sel.AttributeId &&
+                            a.ProductAttributeValueId == sel.ValueId);
+
+                        if (match is null)
+                        {
+                            return Result<Guid>.Failure(
+                                $"Invalid attribute selection for product '{ci.Product.NameEn}'. " +
+                                $"AttributeId={sel.AttributeId}, ValueId={(sel.ValueId?.ToString() ?? "null")} is not allowed.");
+                        }
+
+                        oi.Attributes.Add(new OrderItemAttribute
+                        {
+                            ProductAttributeId = sel.AttributeId,
+                            ProductAttributeValueId = sel.ValueId,
+                            AttributeName = match.AttributeName, // snapshot
+                            Value = match.Value                   // snapshot (may be null)
+                        });
+                    }
+                }
+
+                orderItems.Add(oi);
+            }
+
+            order.Items = orderItems;
 
             // Reserve/deduct stock if not allowing backorder
             foreach (var ci in cart.Items)

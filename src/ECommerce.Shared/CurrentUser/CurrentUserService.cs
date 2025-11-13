@@ -21,7 +21,7 @@ public static class CurrentUser
     private const string RoleClaim = ClaimTypes.Role;
     private const string AudienceClaim = "aud";
 
-    public static Guid Id
+    public static Guid? Id
     {
         get
         {
@@ -29,7 +29,7 @@ public static class CurrentUser
             var raw = GetClaimValue(SubClaim)
                    ?? GetClaimValue(NameIdClaim)
                    ?? GetClaimValue("Id");
-            return Guid.TryParse(raw, out var id) ? id : Guid.Empty;
+            return Guid.TryParse(raw, out var id) ? id : null;
         }
     }
 

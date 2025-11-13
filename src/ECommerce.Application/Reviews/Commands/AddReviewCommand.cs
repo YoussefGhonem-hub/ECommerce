@@ -50,16 +50,14 @@ public class AddReviewHandler : IRequestHandler<AddReviewCommand, Result<bool>>
         // recompute average from approved reviews (change filter if you want all reviews)
         var avg = await _context.ProductReviews
             .Where(r => r.ProductId == request.ProductId && r.IsApproved)
-            .Select(r => (double)r.Rating)
-            .DefaultIfEmpty(0)
-            .AverageAsync(cancellationToken);
+            .AverageAsync(r => (double?)r.Rating, cancellationToken) ?? 0.0;
 
         var product = await _context.Products
             .FirstOrDefaultAsync(p => p.Id == request.ProductId, cancellationToken);
 
         if (product is not null)
         {
-            product.AverageRating = Math.Round(avg, 2); // keep two decimals
+            product.AverageRating = Math.Round(avg, 2);
             await _context.SaveChangesAsync(cancellationToken);
         }
 

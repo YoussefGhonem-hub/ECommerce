@@ -7,7 +7,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Application.Favorites.Queries;
 
-public sealed record GetMyFavoritesQuery(string UserId) : IRequest<Result<List<FavoriteProduct>>>;
+// For authenticated users we ignore GuestId and use CurrentUser.UserId.
+// If unauthenticated (no CurrentUser.UserId) we require GuestId.
+public sealed record GetMyFavoritesQuery(string? GuestId) : IRequest<Result<List<FavoriteProduct>>>;
 
 public class GetMyFavoritesHandler : IRequestHandler<GetMyFavoritesQuery, Result<List<FavoriteProduct>>>
 {
@@ -20,20 +22,28 @@ public class GetMyFavoritesHandler : IRequestHandler<GetMyFavoritesQuery, Result
 
     public async Task<Result<List<FavoriteProduct>>> Handle(GetMyFavoritesQuery request, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.UserId))
+        var userId = CurrentUser.Id; // Guid? (null if guest)
+        var isAuthenticated = userId.HasValue;
+
+        if (!isAuthenticated && string.IsNullOrWhiteSpace(request.GuestId))
         {
             return Result<List<FavoriteProduct>>.Validation(new()
             {
-                { nameof(request.UserId), new[] { "UserId is required." } }
+                { "Identity", new[] { "GuestId is required when user is not authenticated." } }
             });
         }
 
         try
         {
-            var favorites = await _context.FavoriteProducts
+            IQueryable<FavoriteProduct> query = _context.FavoriteProducts
                 .AsNoTracking()
-                .Include(f => f.Product)
-                .Where(f => f.UserId == CurrentUser.Id)
+                .Include(f => f.Product);
+
+            query = isAuthenticated
+                ? query.Where(f => f.UserId == userId)
+                : query.Where(f => f.GuestId == request.GuestId);
+
+            var favorites = await query
                 .OrderByDescending(f => f.CreatedDate)
                 .ToListAsync(cancellationToken);
 

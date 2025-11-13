@@ -9,4 +9,7 @@ public class CartItem : BaseAuditableEntity
     public Guid ProductId { get; set; }
     public Product? Product { get; set; }
     public int Quantity { get; set; }
+
+    // Selected attributes (e.g., Size=M, Color=Red)
+    public ICollection<CartItemAttribute> Attributes { get; set; } = new List<CartItemAttribute>();
 }
