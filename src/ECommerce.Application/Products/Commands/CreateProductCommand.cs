@@ -11,7 +11,8 @@ namespace ECommerce.Application.Products.Commands;
 public record CreateProductCommand(
     string NameAr,
     string NameEn,
-    string? Description,
+    string? DescriptionEn,
+    string? DescriptionAr,
     string SKU,
     Guid CategoryId,
     decimal Price,
@@ -43,7 +44,8 @@ public class CreateProductHandler : IRequestHandler<CreateProductCommand, Result
         {
             NameAr = request.NameAr,
             NameEn = request.NameEn,
-            Description = request.Description,
+            DescriptionAr = request.DescriptionAr,
+            DescriptionEn = request.DescriptionEn,
             SKU = request.SKU,
             CategoryId = request.CategoryId,
             Price = request.Price,

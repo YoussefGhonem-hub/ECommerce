@@ -6,6 +6,8 @@ public class ProductDetailsDto
     public string NameEn { get; set; } = string.Empty;
     public string NameAr { get; set; } = string.Empty;
     public string SKU { get; set; } = string.Empty;
+    public string? DescriptionEn { get; set; }
+    public string? DescriptionAr { get; set; }
     public string CategoryNameEn { get; set; } = string.Empty;
     public string CategoryNameAr { get; set; } = string.Empty;
     public decimal Price { get; set; }

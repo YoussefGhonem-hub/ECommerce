@@ -2,11 +2,12 @@ using ECommerce.Application.Common;
 using ECommerce.Domain.Entities;
 using ECommerce.Infrastructure.Persistence;
 using MediatR;
-using System.Data.Entity;
+using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Application.Reviews.Commands;
 
 public record AddReviewCommand(string UserId, Guid ProductId, int Rating, string? Comment) : IRequest<Result<bool>>;
+
 public class AddReviewHandler : IRequestHandler<AddReviewCommand, Result<bool>>
 {
     private readonly ApplicationDbContext _context;
@@ -20,6 +21,8 @@ public class AddReviewHandler : IRequestHandler<AddReviewCommand, Result<bool>>
     {
         if (request.Rating < 1 || request.Rating > 5)
             return Result<bool>.Failure("Rating must be between 1 and 5");
+
+        await using var tx = await _context.Database.BeginTransactionAsync(cancellationToken);
 
         // user can update own review for same product
         var existing = await _context.ProductReviews
@@ -41,7 +44,27 @@ public class AddReviewHandler : IRequestHandler<AddReviewCommand, Result<bool>>
             existing.Comment = request.Comment;
         }
 
+        // persist the review first so the aggregation sees it
         await _context.SaveChangesAsync(cancellationToken);
+
+        // recompute average from approved reviews (change filter if you want all reviews)
+        var avg = await _context.ProductReviews
+            .Where(r => r.ProductId == request.ProductId && r.IsApproved)
+            .Select(r => (double)r.Rating)
+            .DefaultIfEmpty(0)
+            .AverageAsync(cancellationToken);
+
+        var product = await _context.Products
+            .FirstOrDefaultAsync(p => p.Id == request.ProductId, cancellationToken);
+
+        if (product is not null)
+        {
+            product.AverageRating = Math.Round(avg, 2); // keep two decimals
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        await tx.CommitAsync(cancellationToken);
+
         return Result<bool>.Success(true);
     }
 }

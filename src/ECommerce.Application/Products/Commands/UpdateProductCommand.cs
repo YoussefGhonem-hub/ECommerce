@@ -11,7 +11,8 @@ public record UpdateProductCommand(
     Guid Id,
     string NameAr,
     string NameEn,
-    string? Description,
+    string? DescriptionAr,
+    string? DescriptionEn,
     string SKU,
     Guid CategoryId,
     decimal Price,
@@ -46,7 +47,8 @@ public class UpdateProductHandler : IRequestHandler<UpdateProductCommand, Result
         // Update fields
         product.NameAr = request.NameAr;
         product.NameEn = request.NameEn;
-        product.Description = request.Description;
+        product.DescriptionAr = request.DescriptionAr;
+        product.DescriptionEn = request.DescriptionEn;
         product.SKU = request.SKU;
         product.CategoryId = request.CategoryId;
         product.Price = request.Price;
