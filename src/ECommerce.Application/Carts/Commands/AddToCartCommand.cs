@@ -31,85 +31,22 @@ public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
         if (request.Quantity <= 0)
             return Result<bool>.Failure("Quantity must be greater than zero.");
 
-        // Normalize selected attributes (dedupe by AttributeId, keep first)
-        var normalizedSelected = (request.Attributes ?? Array.Empty<SelectedAttributeDto>())
-            .GroupBy(a => a.AttributeId)
-            .Select(g => g.First())
-            .ToDictionary(x => x.AttributeId, x => x.ValueId);
+        var selected = NormalizeSelectedAttributes(request.Attributes);
 
-        // Validate selections against allowed mappings for the product and prepare snapshots
-        var allowed = await _context.ProductAttributeMappings
-            .Where(m => m.ProductId == request.ProductId)
-            .Select(m => new
-            {
-                m.ProductAttributeId,
-                m.ProductAttributeValueId,
-                AttributeName = m.ProductAttribute.Name,
-                Value = m.ProductAttributeValue != null ? m.ProductAttributeValue.Value : null
-            })
-            .ToListAsync(cancellationToken);
+        var allowed = await GetAllowedMappingsAsync(request.ProductId, cancellationToken);
+        var validationError = ValidateSelections(selected, allowed);
+        if (validationError is not null)
+            return Result<bool>.Failure(validationError);
 
-        foreach (var sel in normalizedSelected)
-        {
-            var match = allowed.FirstOrDefault(a =>
-                a.ProductAttributeId == sel.Key &&
-                a.ProductAttributeValueId == sel.Value);
+        var snapshotByPair = BuildSnapshotDictionary(allowed);
 
-            if (match is null)
-            {
-                return Result<bool>.Failure(
-                    $"Invalid attribute selection. AttributeId={sel.Key}, ValueId={(sel.Value?.ToString() ?? "null")} is not allowed for this product.");
-            }
-        }
+        var cart = await GetOrCreateCartAsync(cancellationToken);
 
-        // Build snapshots to store in cart item (only for provided selections)
-        var snapshotByPair = allowed
-            .ToDictionary(k => (k.ProductAttributeId, k.ProductAttributeValueId), v => v);
-
-        // Load or create cart with items and their selected attributes
-        var cart = await _context.Carts
-            .Include(c => c.Items)
-                .ThenInclude(i => i.Attributes)
-            .FirstOrDefaultAsync(c =>
-                    (CurrentUser.UserId != null && c.UserId == CurrentUser.Id) ||
-                    (CurrentUser.GuestId != null && c.GuestId == CurrentUser.GuestId),
-                cancellationToken);
-
-        if (cart is null)
-        {
-            cart = new Cart
-            {
-                UserId = CurrentUser.Id ?? null,
-                GuestId = CurrentUser.GuestId
-            };
-            _context.Carts.Add(cart);
-        }
-
-        // Try to find an existing line with same product and same attribute selections
-        var existingItem = cart.Items.FirstOrDefault(i =>
-            i.ProductId == request.ProductId &&
-            AttributesEqual(i.Attributes, normalizedSelected));
+        var existingItem = FindExistingItem(cart, request.ProductId, selected);
 
         if (existingItem is null)
         {
-            var newItem = new CartItem
-            {
-                ProductId = request.ProductId,
-                Quantity = request.Quantity
-            };
-
-            foreach (var (attrId, valId) in normalizedSelected)
-            {
-                var snap = snapshotByPair[(attrId, valId)];
-                newItem.Attributes.Add(new CartItemAttribute
-                {
-                    ProductAttributeId = attrId,
-                    ProductAttributeValueId = valId,
-                    AttributeName = snap.AttributeName,
-                    Value = snap.Value
-                });
-            }
-
+            var newItem = CreateCartItem(cart, request.ProductId, request.Quantity, selected, snapshotByPair);
             cart.Items.Add(newItem);
         }
         else
@@ -138,4 +75,112 @@ public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
 
         return true;
     }
+
+    // ----------------------
+    // Private helpers
+    // ----------------------
+
+    private static IReadOnlyDictionary<Guid, Guid?> NormalizeSelectedAttributes(IReadOnlyList<SelectedAttributeDto>? attributes) =>
+        (attributes ?? Array.Empty<SelectedAttributeDto>())
+            .GroupBy(a => a.AttributeId)
+            .Select(g => g.First())
+            .ToDictionary(x => x.AttributeId, x => x.ValueId);
+
+    private async Task<List<AllowedMap>> GetAllowedMappingsAsync(Guid productId, CancellationToken ct) =>
+        await _context.ProductAttributeMappings
+            .Where(m => m.ProductId == productId)
+            .Select(m => new AllowedMap(
+                m.ProductAttributeId,
+                m.ProductAttributeValueId,
+                m.ProductAttribute.Name,
+                m.ProductAttributeValue != null ? m.ProductAttributeValue.Value : null))
+            .ToListAsync(ct);
+
+    private static string? ValidateSelections(
+        IReadOnlyDictionary<Guid, Guid?> selected,
+        List<AllowedMap> allowed)
+    {
+        foreach (var sel in selected)
+        {
+            var match = allowed.FirstOrDefault(a =>
+                a.ProductAttributeId == sel.Key &&
+                a.ProductAttributeValueId == sel.Value);
+        }
+
+        return null;
+    }
+
+    private static Dictionary<(Guid AttributeId, Guid? ValueId), AllowedMap> BuildSnapshotDictionary(List<AllowedMap> allowed) =>
+        allowed.ToDictionary(k => (k.ProductAttributeId, k.ProductAttributeValueId));
+
+    private async Task<Cart> GetOrCreateCartAsync(CancellationToken ct)
+    {
+        var cart = await _context.Carts
+            .Include(c => c.Items)
+                .ThenInclude(i => i.Attributes)
+            .FirstOrDefaultAsync(c =>
+                    (CurrentUser.UserId != null && c.UserId == CurrentUser.Id) ||
+                    (CurrentUser.GuestId != null && c.GuestId == CurrentUser.GuestId),
+                ct);
+
+        if (cart is null)
+        {
+            cart = new Cart
+            {
+                UserId = CurrentUser.Id ?? null,
+                GuestId = CurrentUser.GuestId
+            };
+            _context.Carts.Add(cart);
+        }
+
+        return cart;
+    }
+
+    private static CartItem? FindExistingItem(Cart cart, Guid productId, IReadOnlyDictionary<Guid, Guid?> selected) =>
+        cart.Items.FirstOrDefault(i =>
+            i.ProductId == productId &&
+            AttributesEqual(i.Attributes, selected));
+
+    private CartItem CreateCartItem(
+        Cart cart,
+        Guid productId,
+        int quantity,
+        IReadOnlyDictionary<Guid, Guid?> selected,
+        IReadOnlyDictionary<(Guid AttributeId, Guid? ValueId), AllowedMap> snapshotByPair)
+    {
+        var item = new CartItem
+        {
+            Cart = cart, // set navigation
+            ProductId = productId,
+            Product = _context.Attach(new Product { Id = productId }).Entity, // set navigation via stub
+            Quantity = quantity
+        };
+
+        foreach (var (attrId, valId) in selected)
+        {
+            var snap = snapshotByPair[(attrId, valId)];
+            var attribute = new CartItemAttribute
+            {
+                CartItem = item, // back-reference (optional, but explicit)
+                ProductAttributeId = attrId,
+                ProductAttribute = _context.Attach(new ProductAttribute { Id = attrId }).Entity,
+                ProductAttributeValueId = valId,
+                ProductAttributeValue = valId is Guid g
+                    ? _context.Attach(new ProductAttributeValue { Id = g }).Entity
+                    : null,
+                AttributeName = snap.AttributeName,
+                Value = snap.Value
+            };
+
+            item.Attributes.Add(attribute);
+        }
+
+        return item;
+    }
+
+    private readonly record struct AllowedMap(
+        Guid ProductAttributeId,
+        Guid? ProductAttributeValueId,
+        string AttributeName,
+        string? Value);
 }
