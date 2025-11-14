@@ -28,16 +28,16 @@ public class AddressesController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> Create(CreateAddressRequest request)
+    public async Task<IActionResult> Create(CreateUserAddressCommand request)
     {
-        var result = await _mediator.Send(new CreateUserAddressCommand(CurrentUserId, request.Country, request.City, request.Street, request.PostalCode, request.IsDefault));
+        var result = await _mediator.Send(request);
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 
-    [HttpPut("{id:guid}")]
-    public async Task<IActionResult> Update(Guid id, UpdateAddressRequest request)
+    [HttpPut]
+    public async Task<IActionResult> Update(UpdateUserAddressCommand request)
     {
-        var result = await _mediator.Send(new UpdateUserAddressCommand(id, CurrentUserId, request.Country, request.City, request.Street, request.PostalCode, request.IsDefault));
+        var result = await _mediator.Send(request);
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 
@@ -49,5 +49,3 @@ public class AddressesController : ControllerBase
     }
 }
 
-public record CreateAddressRequest(string Country, string City, string Street, string? PostalCode, bool IsDefault);
-public record UpdateAddressRequest(string Country, string City, string Street, string? PostalCode, bool IsDefault);

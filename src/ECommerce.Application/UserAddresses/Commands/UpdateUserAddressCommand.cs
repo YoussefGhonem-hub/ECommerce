@@ -30,7 +30,6 @@ public class UpdateUserAddressHandler : IRequestHandler<UpdateUserAddressCommand
         address.Country = request.Country;
         address.City = request.City;
         address.Street = request.Street;
-        address.PostalCode = request.PostalCode;
         address.IsDefault = request.IsDefault;
 
         await _context.SaveChangesAsync(cancellationToken);
