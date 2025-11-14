@@ -2,13 +2,12 @@ using ECommerce.Application.Common;
 using ECommerce.Domain.Entities;
 using ECommerce.Infrastructure.Persistence;
 using ECommerce.Shared.CurrentUser;
-using ECommerce.Shared.Extensions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Application.Wishlist.Commands;
 
-// Authenticated user resolved from CurrentUser.UserId; guest identified by GuestId.
+// Authenticated user resolved from CurrentUser.Id; guest identified by GuestId.
 public sealed record AddToWishlistCommand(Guid ProductId, string? GuestId) : IRequest<Result<bool>>;
 
 public class AddToWishlistCommandHandler : IRequestHandler<AddToWishlistCommand, Result<bool>>
@@ -22,9 +21,9 @@ public class AddToWishlistCommandHandler : IRequestHandler<AddToWishlistCommand,
 
     public async Task<Result<bool>> Handle(AddToWishlistCommand request, CancellationToken cancellationToken)
     {
-        var userId = CurrentUser.UserId; // Guid? (null if guest/unauthenticated)
+        var userId = CurrentUser.Id; // Guid? (null if guest/unauthenticated)
 
-        if (string.IsNullOrWhiteSpace(userId) && string.IsNullOrWhiteSpace(request.GuestId))
+        if (!userId.HasValue && string.IsNullOrWhiteSpace(request.GuestId))
         {
             return Result<bool>.Validation(new()
             {
@@ -42,17 +41,18 @@ public class AddToWishlistCommandHandler : IRequestHandler<AddToWishlistCommand,
             .AnyAsync(f =>
                 f.ProductId == request.ProductId &&
                 (
-                    (!string.IsNullOrWhiteSpace(userId) && f.UserId == userId.ToGuid()) ||
-                    (string.IsNullOrWhiteSpace(userId) && f.GuestId == request.GuestId)
-                ), cancellationToken);
+                    (userId.HasValue && f.UserId == userId) ||
+                    (!userId.HasValue && f.GuestId == request.GuestId)
+                ),
+                cancellationToken);
 
         if (!exists)
         {
             _context.FavoriteProducts.Add(new FavoriteProduct
             {
                 ProductId = request.ProductId,
-                UserId = userId.ToGuid(),                                // null for guest
-                GuestId = string.IsNullOrWhiteSpace(userId) ? null : request.GuestId
+                UserId = userId,                               // null when guest or when CurrentUser.UserId is empty
+                GuestId = userId.HasValue ? null : request.GuestId
             });
 
             await _context.SaveChangesAsync(cancellationToken);

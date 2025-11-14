@@ -21,6 +21,44 @@ public static class CurrentUser
     private const string RoleClaim = ClaimTypes.Role;
     private const string AudienceClaim = "aud";
 
+    // Read guest id from request header "X-Guest-UserId" and cache per-request
+    public static string? GuestId
+    {
+        get
+        {
+            var http = HttpContextAccessor?.HttpContext;
+            if (http is null) return null;
+
+            const string cacheKey = "__CurrentUserGuestId__";
+            if (http.Items.TryGetValue(cacheKey, out var cached) && cached is string s)
+                return s;
+
+            var header = http.Request?.Headers["X-Guest-UserId"].FirstOrDefault();
+            var guestId = string.IsNullOrWhiteSpace(header) ? null : header!.Trim();
+
+            if (!string.IsNullOrEmpty(guestId))
+                http.Items[cacheKey] = guestId;
+
+            return guestId;
+        }
+        set
+        {
+            var http = HttpContextAccessor?.HttpContext;
+            if (http is null) return;
+
+            const string cacheKey = "__CurrentUserGuestId__";
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                if (http.Items.ContainsKey(cacheKey))
+                    http.Items.Remove(cacheKey);
+            }
+            else
+            {
+                http.Items[cacheKey] = value.Trim();
+            }
+        }
+    }
+
     public static Guid? Id
     {
         get

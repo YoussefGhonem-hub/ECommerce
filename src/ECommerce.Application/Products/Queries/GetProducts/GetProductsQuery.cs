@@ -1,4 +1,5 @@
 using ECommerce.Application.Common;
+using ECommerce.Shared.CurrentUser;
 using ECommerce.Shared.Dtos;
 using Mapster;
 using MediatR;
@@ -26,11 +27,14 @@ public class GetProductsHandler : IRequestHandler<GetProductsQuery, Result<Paged
 
     public async Task<Result<PagedResult<ProductDto>>> Handle(GetProductsQuery request, CancellationToken cancellationToken)
     {
+        var userId = CurrentUser.Id;
+        var guestId = CurrentUser.GuestId;
+
         var query = _context.Products
-            .Include(x => x.Category)
             .AsNoTracking()
+            .Include(x => x.Category)
             .ApplyFilters(request)
-            .ApplySorting(request.Sort)
+            .ApplySorting(request.Sort, userId, guestId)
             .ProjectToType<ProductDto>();
 
         var paged = await query.ToPagedResultAsync(request.PageIndex, request.PageSize, cancellationToken);

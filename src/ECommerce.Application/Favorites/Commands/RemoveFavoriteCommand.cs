@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace ECommerce.Application.Wishlist.Commands;
 
 // Auth context: use CurrentUser.UserId if authenticated; fall back to GuestId.
-public sealed record RemoveFromWishlistCommand(Guid ProductId, string? GuestId) : IRequest<Result<bool>>;
+public sealed record RemoveFromWishlistCommand(Guid ProductId) : IRequest<Result<bool>>;
 
 public class RemoveFromWishlistCommandHandler : IRequestHandler<RemoveFromWishlistCommand, Result<bool>>
 {
@@ -22,7 +22,7 @@ public class RemoveFromWishlistCommandHandler : IRequestHandler<RemoveFromWishli
     {
         var userId = CurrentUser.UserId;
 
-        if (!string.IsNullOrWhiteSpace(userId) && string.IsNullOrWhiteSpace(request.GuestId))
+        if (!string.IsNullOrWhiteSpace(userId) && string.IsNullOrWhiteSpace(CurrentUser.GuestId))
         {
             return Result<bool>.Validation(new()
             {
@@ -36,7 +36,7 @@ public class RemoveFromWishlistCommandHandler : IRequestHandler<RemoveFromWishli
                 f.ProductId == request.ProductId &&
                 (
                     string.IsNullOrWhiteSpace(userId) ||
-                    (!string.IsNullOrWhiteSpace(userId) && f.GuestId == request.GuestId)
+                    (!string.IsNullOrWhiteSpace(userId) && f.GuestId == CurrentUser.GuestId)
                 ),
                 cancellationToken);
 

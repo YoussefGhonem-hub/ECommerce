@@ -1,12 +1,17 @@
 using ECommerce.Application.Common;
 using ECommerce.Infrastructure.Persistence;
+using ECommerce.Shared.CurrentUser;
 using Mapster;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Application.Products.Queries.GetProductById;
 
-public record GetProductByIdQuery(Guid Id) : IRequest<Result<ProductDetailsDto>>;
+public record GetProductByIdQuery(Guid Id) : IRequest<Result<ProductDetailsDto>>
+{
+    // Optional guest context for wishlist detection when unauthenticated
+    public string? GuestId { get; init; }
+}
 
 public class GetProductByIdHandler : IRequestHandler<GetProductByIdQuery, Result<ProductDetailsDto>>
 {
@@ -46,16 +51,17 @@ public class GetProductByIdHandler : IRequestHandler<GetProductByIdQuery, Result
 
         product.Attributes = attributes;
 
-        // 3) Final safeguards: ensure main image fallback and recalc average if needed
-        if (string.IsNullOrWhiteSpace(product.MainImagePath))
-        {
-            product.MainImagePath = "https://images.pexels.com/photos/90946/pexels-photo-90946.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=500";
-        }
-
-        if (product.AverageRating <= 0 && product.Reviews.Count > 0)
-        {
-            product.AverageRating = product.Reviews.Average(r => r.Rating);
-        }
+        // 3) Determine wishlist status for current user or guest
+        var userId = CurrentUser.Id; // Guid? (null when unauthenticated)
+        product.IsInWishlist = await _context.FavoriteProducts
+            .AsNoTracking()
+            .AnyAsync(fp =>
+                fp.ProductId == request.Id &&
+                (
+                    (userId.HasValue && fp.UserId == userId) ||
+                    (fp.GuestId == CurrentUser.GuestId)
+                ),
+                cancellationToken);
 
         return Result<ProductDetailsDto>.Success(product);
     }

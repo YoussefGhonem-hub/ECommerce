@@ -26,11 +26,11 @@ public class WishlistController : ControllerBase
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 
-    [HttpDelete("{productId:guid}")]
-    public async Task<IActionResult> Remove([FromQuery] RemoveFromWishlistCommand? command, CancellationToken ct)
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Remove([FromQuery] Guid id, CancellationToken ct)
     {
 
-        var cmd = new RemoveFromWishlistCommand(command.ProductId, command.GuestId);
+        var cmd = new RemoveFromWishlistCommand(id);
         var result = await _mediator.Send(cmd, ct);
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }

@@ -22,7 +22,6 @@ public static class QueryableProductExtensions
             query = query.Where(p => p.CategoryId == id);
         }
 
-        // Price filters
         if (request.Price.HasValue)
         {
             var price = request.Price.Value;
@@ -35,7 +34,6 @@ public static class QueryableProductExtensions
 
             if (min.HasValue && max.HasValue)
             {
-                // auto-correct swapped bounds
                 if (min > max)
                     (min, max) = (max, min);
 
@@ -54,42 +52,94 @@ public static class QueryableProductExtensions
         return query;
     }
 
-    // Default sorting: newest first
+    // Existing default (kept for backward compatibility)
     public static IOrderedQueryable<Product> ApplySorting(this IQueryable<Product> query)
         => query.OrderByDescending(p => p.CreatedDate);
 
-    // Extended sorting with featured + hyphen/underscore synonyms for price    
+    // Existing overload (still used elsewhere if needed)
     public static IOrderedQueryable<Product> ApplySorting(this IQueryable<Product> query, string? sort)
     {
         if (string.IsNullOrWhiteSpace(sort))
             return query.OrderByDescending(p => p.CreatedDate);
 
-        // Normalize: trim, lower, unify underscores to hyphens
         var key = sort.Trim().ToLowerInvariant().Replace('_', '-');
 
         return key switch
         {
-            // Featured: assumes a boolean property IsFeatured (change to p.Featured if your model uses that name)
             "featured" or "isfeatured" =>
                 query.OrderByDescending(p => p.CreatedDate)
                      .ThenByDescending(p => p.CreatedDate),
 
-            // Created (ascending typo support)
             "created-as" or "created-asc" =>
                 query.OrderBy(p => p.CreatedDate),
 
-            // Price asc / desc (support both styles)
             "price-asc" =>
                 query.OrderBy(p => p.Price),
             "price-desc" =>
                 query.OrderByDescending(p => p.Price),
 
-            // Name English asc / desc
             "name-en-asc" =>
                 query.OrderBy(p => p.NameEn),
             "name-en-desc" =>
                 query.OrderByDescending(p => p.NameEn),
 
+            _ => query.OrderByDescending(p => p.CreatedDate)
+        };
+    }
+
+    // New overload with wishlist/favorites awareness
+    public static IOrderedQueryable<Product> ApplySorting(this IQueryable<Product> query, string? sort, Guid? currentUserId, string? guestId)
+    {
+        if (string.IsNullOrWhiteSpace(sort))
+            return query.OrderByDescending(p => p.CreatedDate);
+
+        var key = sort.Trim().ToLowerInvariant().Replace('_', '-');
+        var isAuthenticated = currentUserId.HasValue;
+
+        // Helper predicate used in ordering
+        // EF Core will translate the Any() with the captured variables into proper SQL.
+        bool FavoritePredicate(Product p) =>
+            p.FavoriteProducts.Any(fp =>
+                (isAuthenticated && fp.UserId == currentUserId) ||
+                (!isAuthenticated && guestId != null && fp.GuestId == guestId));
+
+        return key switch
+        {
+            // Wishlist / favorites first (non-favorites later)
+            "wishlist" or "wishlist-first" or "favorites" or "favorites-first" or "favorite-first" =>
+                query
+                    .OrderByDescending(p => p.FavoriteProducts.Any(fp =>
+                        (isAuthenticated && fp.UserId == currentUserId) ||
+                        (!isAuthenticated && guestId != null && fp.GuestId == guestId)))
+                    .ThenByDescending(p => p.CreatedDate),
+
+            // Only favorites first then price desc
+            "wishlist-price-desc" =>
+                query
+                    .OrderByDescending(p => p.FavoriteProducts.Any(fp =>
+                        (isAuthenticated && fp.UserId == currentUserId) ||
+                        (!isAuthenticated && guestId != null && fp.GuestId == guestId)))
+                    .ThenByDescending(p => p.Price),
+
+            // Existing keys reuse prior logic
+            "featured" or "isfeatured" =>
+                query.OrderByDescending(p => p.CreatedDate)
+                     .ThenByDescending(p => p.CreatedDate),
+
+            "created-as" or "created-asc" =>
+                query.OrderBy(p => p.CreatedDate),
+
+            "price-asc" =>
+                query.OrderBy(p => p.Price),
+            "price-desc" =>
+                query.OrderByDescending(p => p.Price),
+
+            "name-en-asc" =>
+                query.OrderBy(p => p.NameEn),
+            "name-en-desc" =>
+                query.OrderByDescending(p => p.NameEn),
+
+            // Fallback
             _ => query.OrderByDescending(p => p.CreatedDate)
         };
     }
