@@ -76,10 +76,7 @@ public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
         return true;
     }
 
-    // ----------------------
-    // Private helpers
-    // ----------------------
-
+    #region MyRegion
     private static IReadOnlyDictionary<Guid, Guid?> NormalizeSelectedAttributes(IReadOnlyList<SelectedAttributeDto>? attributes) =>
         (attributes ?? Array.Empty<SelectedAttributeDto>())
             .GroupBy(a => a.AttributeId)
@@ -150,9 +147,8 @@ public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
     {
         var item = new CartItem
         {
-            Cart = cart, // set navigation
+            CartId = cart.Id, // set navigation
             ProductId = productId,
-            Product = _context.Attach(new Product { Id = productId }).Entity, // set navigation via stub
             Quantity = quantity
         };
 
@@ -161,13 +157,9 @@ public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
             var snap = snapshotByPair[(attrId, valId)];
             var attribute = new CartItemAttribute
             {
-                CartItem = item, // back-reference (optional, but explicit)
+                CartItemId = item.Id,
                 ProductAttributeId = attrId,
-                ProductAttribute = _context.Attach(new ProductAttribute { Id = attrId }).Entity,
                 ProductAttributeValueId = valId,
-                ProductAttributeValue = valId is Guid g
-                    ? _context.Attach(new ProductAttributeValue { Id = g }).Entity
-                    : null,
                 AttributeName = snap.AttributeName,
                 Value = snap.Value
             };
@@ -183,4 +175,6 @@ public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
         Guid? ProductAttributeValueId,
         string AttributeName,
         string? Value);
+    #endregion
+
 }
