@@ -20,9 +20,9 @@ public class RemoveFromWishlistCommandHandler : IRequestHandler<RemoveFromWishli
 
     public async Task<Result<bool>> Handle(RemoveFromWishlistCommand request, CancellationToken cancellationToken)
     {
-        var userId = CurrentUser.UserId;
+        var userId = CurrentUser.Id;
 
-        if (!string.IsNullOrWhiteSpace(userId) && string.IsNullOrWhiteSpace(CurrentUser.GuestId))
+        if (!userId.HasValue && string.IsNullOrWhiteSpace(CurrentUser.GuestId))
         {
             return Result<bool>.Validation(new()
             {
@@ -35,8 +35,8 @@ public class RemoveFromWishlistCommandHandler : IRequestHandler<RemoveFromWishli
             .FirstOrDefaultAsync(f =>
                 f.ProductId == request.ProductId &&
                 (
-                    string.IsNullOrWhiteSpace(userId) ||
-                    (!string.IsNullOrWhiteSpace(userId) && f.GuestId == CurrentUser.GuestId)
+                    (userId.HasValue && f.UserId == userId) ||
+                    (f.GuestId == CurrentUser.GuestId)
                 ),
                 cancellationToken);
 

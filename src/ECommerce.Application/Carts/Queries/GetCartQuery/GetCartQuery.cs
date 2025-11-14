@@ -31,6 +31,7 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<List<Car
                 (guestId != null && c.GuestId == guestId))
             .Include(c => c.Items)
                 .ThenInclude(i => i.Product)
+                .ThenInclude(i => i.FavoriteProducts)
             .Include(c => c.Items)
                 .ThenInclude(i => i.Attributes)
             .Include(c => c.Items)

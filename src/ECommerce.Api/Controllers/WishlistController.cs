@@ -27,7 +27,7 @@ public class WishlistController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Remove([FromQuery] Guid id, CancellationToken ct)
+    public async Task<IActionResult> Remove(Guid id, CancellationToken ct)
     {
 
         var cmd = new RemoveFromWishlistCommand(id);

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Application.Carts.Commands;
 
-public record RemoveCartItemCommand(string? UserId, string? GuestId, Guid CartItemId) : IRequest<Result<bool>>;
+public record RemoveCartItemCommand(Guid CartItemId) : IRequest<Result<bool>>;
 
 public class RemoveCartItemHandler : IRequestHandler<RemoveCartItemCommand, Result<bool>>
 {
@@ -22,8 +22,8 @@ public class RemoveCartItemHandler : IRequestHandler<RemoveCartItemCommand, Resu
         var cart = await _context.Carts
             .Include(c => c.Items)
             .FirstOrDefaultAsync(c =>
-                (request.UserId != null && c.UserId == CurrentUser.Id) ||
-                (request.GuestId != null && c.GuestId == request.GuestId),
+                (CurrentUser.UserId != null && c.UserId == CurrentUser.Id) ||
+                (CurrentUser.GuestId != null && c.GuestId == CurrentUser.GuestId),
                 cancellationToken);
 
         if (cart is null) return Result<bool>.Failure("Cart not found");

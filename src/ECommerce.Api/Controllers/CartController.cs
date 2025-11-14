@@ -30,4 +30,10 @@ public class CartController : ControllerBase
         var result = await _mediator.Send(addToCartCommand);
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }
+    [HttpDelete("{cartItemId}")]
+    public async Task<IActionResult> RemoveCartItem(Guid cartItemId)
+    {
+        var result = await _mediator.Send(new RemoveCartItemCommand(cartItemId));
+        return result.Succeeded ? Ok(result) : BadRequest(result);
+    }
 }
