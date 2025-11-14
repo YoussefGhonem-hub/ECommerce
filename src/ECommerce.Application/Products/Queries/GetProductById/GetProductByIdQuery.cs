@@ -24,7 +24,7 @@ public class GetProductByIdHandler : IRequestHandler<GetProductByIdQuery, Result
 
     public async Task<Result<ProductDetailsDto>> Handle(GetProductByIdQuery request, CancellationToken cancellationToken)
     {
-        // 1) Project main product details with images and approved reviews using Mapster (EF-translated)
+        // Project main product details with images and approved reviews using Mapster
         var product = await _context.Products
             .Include(x => x.ProductReviews)
             .Include(x => x.Images)
@@ -36,7 +36,7 @@ public class GetProductByIdHandler : IRequestHandler<GetProductByIdQuery, Result
         if (product is null)
             return Result<ProductDetailsDto>.Failure("Product.NotFound");
 
-        // 2) Load attribute mappings separately (no inverse nav on Product)
+        // Load attribute mappings
         var attributes = await _context.ProductAttributeMappings
             .AsNoTracking()
             .Where(m => m.ProductId == request.Id)
@@ -51,16 +51,14 @@ public class GetProductByIdHandler : IRequestHandler<GetProductByIdQuery, Result
 
         product.Attributes = attributes;
 
-        // 3) Determine wishlist status for current user or guest
         var userId = CurrentUser.Id; // Guid? (null when unauthenticated)
-        product.IsInWishlist = await _context.FavoriteProducts
+        // Compute IsInCart (handler-level, not Mapster)
+        var guestId = CurrentUser.GuestId;
+        product.IsInCart = await _context.Carts
             .AsNoTracking()
-            .AnyAsync(fp =>
-                fp.ProductId == request.Id &&
-                (
-                    (userId.HasValue && fp.UserId == userId) ||
-                    (fp.GuestId == CurrentUser.GuestId)
-                ),
+            .AnyAsync(c =>
+                ((userId != null && c.UserId == userId) || (guestId != null && c.GuestId == guestId)) &&
+                c.Items.Any(i => i.ProductId == request.Id),
                 cancellationToken);
 
         return Result<ProductDetailsDto>.Success(product);

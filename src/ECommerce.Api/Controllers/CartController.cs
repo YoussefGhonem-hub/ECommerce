@@ -1,7 +1,5 @@
 using ECommerce.Application.Carts.Commands;
 using ECommerce.Application.Carts.Queries.GetCartQuery;
-using ECommerce.Shared.CurrentUser;
-using ECommerce.Shared.Extensions;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -20,16 +18,16 @@ public class CartController : ControllerBase
 
 
     [HttpGet]
-    public async Task<IActionResult> Get([FromQuery] string? guestId)
+    public async Task<IActionResult> Get()
     {
-        var result = await _mediator.Send(new GetCartQuery(CurrentUser.UserId.ToGuid(), guestId));
+        var result = await _mediator.Send(new GetCartQuery());
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 
     [HttpPost("add")]
-    public async Task<IActionResult> Add(Guid productId, int quantity = 1, [FromQuery] string? guestId = null)
+    public async Task<IActionResult> Add(AddToCartCommand addToCartCommand)
     {
-        var result = await _mediator.Send(new AddToCartCommand(CurrentUser.UserId.ToGuid(), guestId, productId, quantity));
+        var result = await _mediator.Send(addToCartCommand);
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 }

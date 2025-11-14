@@ -30,6 +30,16 @@ public class GetProductsHandler : IRequestHandler<GetProductsQuery, Result<Paged
         var userId = CurrentUser.Id;
         var guestId = CurrentUser.GuestId;
 
+        // Collect product ids currently in cart (single small query)
+        var cartProductIds = await _context.Carts
+            .AsNoTracking()
+            .Where(c =>
+                (userId != null && c.UserId == userId) ||
+                (guestId != null && c.GuestId == guestId))
+            .SelectMany(c => c.Items.Select(i => i.ProductId))
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
         var query = _context.Products
             .AsNoTracking()
             .Include(x => x.Category)
@@ -38,6 +48,14 @@ public class GetProductsHandler : IRequestHandler<GetProductsQuery, Result<Paged
             .ProjectToType<ProductDto>();
 
         var paged = await query.ToPagedResultAsync(request.PageIndex, request.PageSize, cancellationToken);
+
+        // Handle IsInCart here (not via Mapster)
+        if (paged?.Items is { } items && cartProductIds.Count > 0)
+        {
+            foreach (var item in items)
+                item.IsInCart = cartProductIds.Contains(item.Id);
+        }
+
         return Result<PagedResult<ProductDto>>.Success(paged);
     }
 }

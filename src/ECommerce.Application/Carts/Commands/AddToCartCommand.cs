@@ -1,6 +1,7 @@
 using ECommerce.Application.Common;
 using ECommerce.Domain.Entities;
 using ECommerce.Infrastructure.Persistence;
+using ECommerce.Shared.CurrentUser;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,8 +9,6 @@ namespace ECommerce.Application.Carts.Commands;
 
 // Accept selected attributes for the product being added
 public record AddToCartCommand(
-    Guid? UserId,
-    string? GuestId,
     Guid ProductId,
     int Quantity,
     IReadOnlyList<SelectedAttributeDto>? Attributes = null
@@ -72,16 +71,16 @@ public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
             .Include(c => c.Items)
                 .ThenInclude(i => i.Attributes)
             .FirstOrDefaultAsync(c =>
-                    (request.UserId != null && c.UserId == request.UserId) ||
-                    (request.GuestId != null && c.GuestId == request.GuestId),
+                    (CurrentUser.UserId != null && c.UserId == CurrentUser.Id) ||
+                    (CurrentUser.GuestId != null && c.GuestId == CurrentUser.GuestId),
                 cancellationToken);
 
         if (cart is null)
         {
             cart = new Cart
             {
-                UserId = request.UserId,
-                GuestId = request.GuestId
+                UserId = CurrentUser.Id ?? null,
+                GuestId = CurrentUser.GuestId
             };
             _context.Carts.Add(cart);
         }
