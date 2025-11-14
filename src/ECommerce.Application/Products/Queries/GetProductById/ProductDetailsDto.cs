@@ -15,16 +15,15 @@ public class ProductDetailsDto
     public string? Brand { get; set; }
     public bool IsInWishlist { get; set; }
     public bool IsInCart { get; set; }
-
-    // Primary image with fallback if null/empty
     public string? MainImagePath { get; set; } =
         "https://images.pexels.com/photos/90946/pexels-photo-90946.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=500";
-
-    // Related data
     public List<ProductImageDto> Images { get; set; } = new();
     public List<ProductReviewDto> Reviews { get; set; } = new();
     public double AverageRating { get; set; }
     public List<ProductAttributeMappingDto> Attributes { get; set; } = new();
+
+    // New: related products
+    public List<RelatedProductDto> RelatedProducts { get; set; } = new();
 }
 
 public class ProductImageDto
@@ -49,4 +48,17 @@ public class ProductAttributeMappingDto
     public string AttributeName { get; set; } = string.Empty;
     public Guid? ValueId { get; set; }
     public string? Value { get; set; }
+}
+
+public class RelatedProductDto
+{
+    public Guid Id { get; set; }
+    public string NameEn { get; set; } = string.Empty;
+    public string NameAr { get; set; } = string.Empty;
+    public decimal Price { get; set; }
+    public string? Brand { get; set; }
+    public string? MainImagePath { get; set; }
+    public double AverageRating { get; set; }
+    public bool IsInWishlist { get; set; }
+    public bool IsInCart { get; set; }
 }
