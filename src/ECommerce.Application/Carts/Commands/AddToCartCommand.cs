@@ -46,7 +46,7 @@ public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
 
         if (existingItem is null)
         {
-            var newItem = CreateCartItem(cart, request.ProductId, request.Quantity, selected, snapshotByPair);
+            var newItem = await CreateCartItem(cart, request.ProductId, request.Quantity, selected, snapshotByPair);
             cart.Items.Add(newItem);
         }
         else
@@ -138,7 +138,7 @@ public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
             i.ProductId == productId &&
             AttributesEqual(i.Attributes, selected));
 
-    private CartItem CreateCartItem(
+    private async Task<CartItem> CreateCartItem(
         Cart cart,
         Guid productId,
         int quantity,
@@ -147,11 +147,11 @@ public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
     {
         var item = new CartItem
         {
-            CartId = cart.Id, // set navigation
+            CartId = cart.Id,
             ProductId = productId,
             Quantity = quantity
         };
-
+        _context.CartItems.Add(item);
         foreach (var (attrId, valId) in selected)
         {
             var snap = snapshotByPair[(attrId, valId)];
@@ -164,7 +164,9 @@ public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
                 Value = snap.Value
             };
 
-            item.Attributes.Add(attribute);
+            _context.CartItemAttributes.Add(attribute);
+            await _context.SaveChangesAsync();
+
         }
 
         return item;
