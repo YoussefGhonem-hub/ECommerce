@@ -1,9 +1,12 @@
 using ECommerce.Domain.Common;
+using ECommerce.Shared.CurrentUser;
 
 namespace ECommerce.Domain.Entities;
 
 public class Product : BaseAuditableEntity
 {
+    public ApplicationUser? User { get; set; }
+    public Guid? UserId { get; set; } = CurrentUser.Id;
     public string NameEn { get; set; } = string.Empty;
     public string NameAr { get; set; } = string.Empty;
     public string? DescriptionEn { get; set; }

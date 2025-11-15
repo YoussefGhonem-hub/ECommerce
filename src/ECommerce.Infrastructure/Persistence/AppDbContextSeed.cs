@@ -23,11 +23,109 @@ public static class AppDbContextSeed
 
         await SeedProductAttributesForTShirtsAsync(context);
 
+        // CHANGED: pass userManager to seed coupons with Admin user id
+        await SeedCouponsAsync(context, userManager);
+
         await SeedCountriesAndCitiesAsync(context); // NEW
         await SeedFreeShippingMethodAsync(context, threshold: 1000m, baseCost: 50m);
         //await SeedFreeShippingMethodForCitiesAsync(context, threshold: 1000m, baseCost: 50m, citiesEn: new[] { "Cairo" });
+    }
+    private static async Task SeedCouponsAsync(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
+    {
+        if (await context.Coupons.AnyAsync())
+            return;
 
+        // Try to get Admin by the seeded email; fallback to first user in Admin role
+        var admin = await userManager.FindByEmailAsync("admin@shop.com");
+        if (admin is null)
+        {
+            var admins = await userManager.GetUsersInRoleAsync("Admin");
+            admin = admins.FirstOrDefault();
+        }
 
+        var adminId = (Guid?)admin?.Id;
+
+        var now = DateTimeOffset.UtcNow;
+        var longEnd = now.AddMonths(12);
+        var midEnd = now.AddMonths(6);
+        var shortEnd = now.AddMonths(1);
+
+        var coupons = new List<Coupon>
+        {
+            new Coupon
+            {
+                Code = "WELCOME50",
+                FixedAmount = 50m,
+                Percentage = null,
+                FreeShipping = false,
+                StartDate = now.AddDays(-7),
+                EndDate = longEnd,
+                UsageLimit = 1000,
+                TimesUsed = 0,
+                PerUserLimit = 1,
+                IsActive = true,
+                UserId = adminId
+            },
+            new Coupon
+            {
+                Code = "SAVE10",
+                FixedAmount = null,
+                Percentage = 10m,
+                FreeShipping = false,
+                StartDate = now.AddDays(-7),
+                EndDate = midEnd,
+                UsageLimit = 2000,
+                TimesUsed = 0,
+                PerUserLimit = 3,
+                IsActive = true,
+                UserId = adminId
+            },
+            new Coupon
+            {
+                Code = "FREESHIP",
+                FixedAmount = null,
+                Percentage = null,
+                FreeShipping = true,
+                StartDate = now.AddDays(-7),
+                EndDate = longEnd,
+                UsageLimit = null,     // unlimited
+                TimesUsed = 0,
+                PerUserLimit = null,   // unlimited per user
+                IsActive = true,
+                UserId = adminId
+            },
+            new Coupon
+            {
+                Code = "BF25FS",
+                FixedAmount = null,
+                Percentage = 25m,
+                FreeShipping = true,
+                StartDate = now.AddDays(-3),
+                EndDate = shortEnd,
+                UsageLimit = 500,
+                TimesUsed = 0,
+                PerUserLimit = 2,
+                IsActive = true,
+                UserId = adminId
+            },
+            new Coupon
+            {
+                Code = "VIP100",
+                FixedAmount = 100m,
+                Percentage = null,
+                FreeShipping = false,
+                StartDate = now.AddDays(-1),
+                EndDate = longEnd,
+                UsageLimit = null,     // unlimited global
+                TimesUsed = 0,
+                PerUserLimit = 5,
+                IsActive = true,
+                UserId = adminId
+            }
+        };
+
+        context.Coupons.AddRange(coupons);
+        await context.SaveChangesAsync();
     }
     private static async Task SeedFreeShippingMethodAsync(ApplicationDbContext context, decimal threshold, decimal baseCost)
     {

@@ -43,9 +43,7 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
                 .ThenInclude(i => i.Product)
                     .ThenInclude(p => p.FavoriteProducts)
             .Include(c => c.Items)
-                .ThenInclude(i => i.Product)
-            .Include(c => c.Items)
-                    .ThenInclude(p => p.Attributes)
+                .ThenInclude(i => i.Attributes)
             .FirstOrDefaultAsync(cancellationToken);
 
         if (cartEntity is null)
@@ -55,18 +53,23 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
                 Cart = new CartDto(),
                 SubTotal = 0,
                 ShippingTotal = 0,
-                Total = 0
+                Total = 0,
+                Coupons = new List<CouponDto>()
             });
         }
 
-        // Map entity graph to CartDto (requires Mapster mappings for Cart, CartItem, CartItemAttribute)
+        // Map entity graph to CartDto (Mapster mappings must be registered)
         var cartDto = cartEntity.Adapt<CartDto>();
 
         var subTotal = cartDto.Total;
-        var discount = 0m; // extend with coupon logic later
+        var discount = 0m; // extend with coupon application if needed
 
+        // Shipping resolution
         var (methodId, shippingCost, freeApplied) =
             await ResolveShippingAsync(userId, subTotal, cancellationToken);
+
+        // Retrieve valid coupons for display
+        var coupons = await GetValidCouponsForCurrentUserAsync(userId, cancellationToken);
 
         var summary = new CheckoutSummaryDto
         {
@@ -76,10 +79,78 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
             ShippingTotal = shippingCost,
             Total = subTotal - discount + shippingCost,
             ShippingMethodId = methodId,
-            FreeShippingApplied = freeApplied
+            FreeShippingApplied = freeApplied,
+            Coupons = coupons
         };
 
         return Result<CheckoutSummaryDto>.Success(summary);
+    }
+
+    private async Task<List<CouponDto>> GetValidCouponsForCurrentUserAsync(Guid? userId, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        // Base valid coupons: active, within date range, not exceeding global usage
+        var baseCoupons = await _context.Coupons
+            .AsNoTracking()
+            .Where(c => c.IsActive
+                        && c.StartDate <= now
+                        && c.EndDate >= now
+                        && (!c.UsageLimit.HasValue || c.TimesUsed < c.UsageLimit.Value))
+            .Select(c => new CouponDto
+            {
+                Id = c.Id,
+                Code = c.Code,
+                FixedAmount = c.FixedAmount,
+                Percentage = c.Percentage,
+                FreeShipping = c.FreeShipping,
+                StartDate = c.StartDate,
+                EndDate = c.EndDate,
+                IsActive = c.IsActive,
+                UsageLimit = c.UsageLimit,
+                TimesUsed = c.TimesUsed,
+                PerUserLimit = c.PerUserLimit,
+                RemainingPerUserUses = null // set below if applicable
+            })
+            .ToListAsync(ct);
+
+        if (userId is null)
+        {
+            // No per-user filtering for guests
+            return baseCoupons;
+        }
+
+        var userKey = userId.Value.ToString();
+
+        // Get per-user usage counts for all coupons in one query
+        var couponIds = baseCoupons.Select(b => b.Id).ToList();
+        var perUserUsage = await _context.CouponUsages
+            .AsNoTracking()
+            .Where(u => u.UserId == userKey && couponIds.Contains(u.CouponId))
+            .GroupBy(u => u.CouponId)
+            .Select(g => new { CouponId = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+
+        var perUserDict = perUserUsage.ToDictionary(x => x.CouponId, x => x.Count);
+
+        // Filter out coupons that exceed per-user limit and compute remaining per-user uses
+        var result = new List<CouponDto>(baseCoupons.Count);
+        foreach (var c in baseCoupons)
+        {
+            if (c.PerUserLimit.HasValue)
+            {
+                var used = perUserDict.TryGetValue(c.Id, out var cnt) ? cnt : 0;
+                var remaining = Math.Max(c.PerUserLimit.Value - used, 0);
+                c.RemainingPerUserUses = remaining;
+
+                if (remaining <= 0)
+                    continue; // user exceeded their personal limit; hide this coupon
+            }
+
+            result.Add(c);
+        }
+
+        return result;
     }
 
     private async Task<(Guid? MethodId, decimal ShippingCost, bool FreeApplied)>
@@ -97,7 +168,9 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
 
         var zone = await _context.ShippingZones
             .Include(z => z.Methods)
-            .FirstOrDefaultAsync(z => z.Methods.FirstOrDefault(x => x.IsDefault) != null, ct);
+            .FirstOrDefaultAsync(z =>
+                z.CountryId == address.CountryId &&
+                (z.CityId == null || z.CityId == address.CityId), ct);
 
         var method = zone?.Methods
             .OrderByDescending(m => m.IsDefault)
@@ -120,7 +193,7 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
                 cost = Math.Round(subTotal * (method.Cost / 100m), 2, MidpointRounding.AwayFromZero);
                 break;
             case ShippingCostType.ByWeight:
-                cost = method.Cost; // fallback (no weights modeled)
+                cost = method.Cost;
                 break;
             default:
                 cost = method.Cost;
