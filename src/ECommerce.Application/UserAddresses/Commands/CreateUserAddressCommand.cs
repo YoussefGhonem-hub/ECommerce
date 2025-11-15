@@ -26,7 +26,6 @@ public class CreateUserAddressHandler : IRequestHandler<CreateUserAddressCommand
             FullName = request.FullName,
             HouseNo = request.HouseNo,
             MobileNumber = request.MobileNumber,
-            CountryId = request.CountryId,
             CityId = request.CityId,
             Street = request.Street,
         };

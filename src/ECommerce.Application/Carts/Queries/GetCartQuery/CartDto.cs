@@ -1,4 +1,6 @@
-﻿namespace ECommerce.Application.Carts.Queries.GetCartQuery;
+﻿using ECommerce.Domain.Entities;
+
+namespace ECommerce.Application.Carts.Queries.GetCartQuery;
 
 public class CheckoutSummaryDto
 {
@@ -11,6 +13,11 @@ public class CheckoutSummaryDto
 
     public bool FreeShippingApplied { get; set; }
     public Guid? ShippingMethodId { get; set; }
+
+    public decimal ItemDiscount { get; set; }
+    public decimal ShippingDiscount { get; set; }
+    // NEW: return selected shipping method details
+    public ShippingMethodSummaryDto? SelectedShippingMethod { get; set; }
 
     // Added: available, valid coupons for the current user/time window
     public List<CouponDto> Coupons { get; set; } = new();
@@ -43,6 +50,7 @@ public class CartItemDto
     public decimal Price { get; set; }
     public int StockQuantity { get; set; }
     public int Quantity { get; set; }
+
     public decimal SubTotal => Price * Quantity;
 
     public List<CartItemAttributeDto> SelectedAttributes { get; set; } = new();
@@ -54,4 +62,19 @@ public class CartItemAttributeDto
     public string AttributeName { get; set; } = string.Empty;
     public Guid? ValueId { get; set; }
     public string? Value { get; set; }
+}
+
+// NEW: includes base and effective cost for the selected (default) method
+public class ShippingMethodSummaryDto
+{
+    public Guid Id { get; set; }
+    public ShippingCostType CostType { get; set; }
+    public decimal BaseCost { get; set; }
+    public decimal EffectiveCost { get; set; }
+    public string? EstimatedTime { get; set; }
+    public bool IsDefault { get; set; }
+    public decimal? FreeShippingThreshold { get; set; }
+    public bool FreeShippingApplied { get; set; }
+    public decimal CalculatedCostWithoutFree { get; set; }
+
 }

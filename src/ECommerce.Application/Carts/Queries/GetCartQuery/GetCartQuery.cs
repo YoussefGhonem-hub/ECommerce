@@ -43,6 +43,9 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
                 .ThenInclude(i => i.Product)
                     .ThenInclude(p => p.FavoriteProducts)
             .Include(c => c.Items)
+                .ThenInclude(i => i.Product)
+                    .ThenInclude(p => p.ProductSettings)
+            .Include(c => c.Items)
                 .ThenInclude(i => i.Attributes)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -64,29 +67,93 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
         var subTotal = cartDto.Total;
         var discount = 0m; // extend with coupon application if needed
 
-        // Shipping resolution
-        var (methodId, shippingCost, freeApplied) =
-            await ResolveShippingAsync(userId, subTotal, cancellationToken);
+        // Gather product IDs
+        var productIds = cartEntity.Items.Select(i => i.ProductId).Distinct().ToList();
+        var now = DateTimeOffset.UtcNow;
+
+        // Load active settings affecting these products
+        var activeSettings = await _context.ProductSettings
+            .Include(ps => ps.Products)
+            .Where(ps => ps.IsActive
+                         && ps.StartDate <= now
+                         && ps.EndDate >= now
+                         && (ps.AppliesToAllProducts || ps.Products.Any(p => productIds.Contains(p.Id))))
+            .ToListAsync(cancellationToken);
+
+        // Compute itemDiscount
+        decimal itemDiscount = 0m;
+
+        foreach (var item in cartEntity.Items)
+        {
+            if (item.Product is null) continue;
+
+            var settingsForProduct = activeSettings.Where(ps =>
+                ps.AppliesToAllProducts || ps.Products.Any(p => p.Id == item.ProductId));
+
+            if (!settingsForProduct.Any()) continue;
+
+            decimal productDiscount = 0m;
+
+            foreach (var setting in settingsForProduct)
+            {
+                productDiscount += ComputeDiscount(setting, item.Product.Price, item.Quantity);
+            }
+
+            // Cap discount at line subtotal
+            var lineSubtotal = item.Product.Price * item.Quantity;
+            if (productDiscount > lineSubtotal)
+                productDiscount = lineSubtotal;
+
+            itemDiscount += productDiscount;
+        }
+
+        // Determine product owner (seller) from cart items:
+        // Prefer Product.UserId; if null/empty, fallback to Product.CreatedBy from BaseAuditableEntity.
+        var sellerIds = cartEntity.Items
+            .Where(i => i.Product != null)
+            .Select(i =>
+            {
+                var p = i.Product!;
+                if (p.UserId.HasValue && p.UserId.Value != Guid.Empty)
+                    return p.UserId.Value;
+                return p.CreatedBy != Guid.Empty ? p.CreatedBy : Guid.Empty;
+            })
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
+
+        Guid? shippingUserId = sellerIds.FirstOrDefault(); // if multiple sellers, pick the first; extend to multi-seller if needed
+
+        // Shipping resolution (use product owner for shipping methods)
+        var methodSummary = await ResolveShippingAsync(shippingUserId, subTotal, cancellationToken);
+        var shippingDiscount = (methodSummary?.FreeShippingApplied ?? false)
+            ? (methodSummary?.CalculatedCostWithoutFree ?? 0m)
+            : 0m;
+
+        discount = itemDiscount + shippingDiscount;
 
         // Retrieve valid coupons for display
-        var coupons = await GetValidCouponsForCurrentUserAsync(userId, cancellationToken);
+        var coupons = await GetValidCouponsForCurrentUserAsync(cartEntity.Items.Select(i => i.Product).FirstOrDefault()!, userId, cancellationToken);
 
         var summary = new CheckoutSummaryDto
         {
             Cart = cartDto,
             SubTotal = subTotal,
+            ItemDiscount = itemDiscount,
+            ShippingDiscount = shippingDiscount,
             DiscountTotal = discount,
-            ShippingTotal = shippingCost,
-            Total = subTotal - discount + shippingCost,
-            ShippingMethodId = methodId,
-            FreeShippingApplied = freeApplied,
+            ShippingTotal = methodSummary?.EffectiveCost ?? 0m,
+            Total = subTotal - discount + (methodSummary?.EffectiveCost ?? 0m),
+            ShippingMethodId = methodSummary?.Id,
+            FreeShippingApplied = methodSummary?.FreeShippingApplied ?? false,
+            SelectedShippingMethod = methodSummary,
             Coupons = coupons
         };
 
         return Result<CheckoutSummaryDto>.Success(summary);
     }
 
-    private async Task<List<CouponDto>> GetValidCouponsForCurrentUserAsync(Guid? userId, CancellationToken ct)
+    private async Task<List<CouponDto>> GetValidCouponsForCurrentUserAsync(Product Product, Guid? userId, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow;
 
@@ -95,6 +162,7 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
             .AsNoTracking()
             .Where(c => c.IsActive
                         && c.StartDate <= now
+                        && c.UserId == Product.UserId
                         && c.EndDate >= now
                         && (!c.UsageLimit.HasValue || c.TimesUsed < c.UsageLimit.Value))
             .Select(c => new CouponDto
@@ -153,53 +221,64 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
         return result;
     }
 
-    private async Task<(Guid? MethodId, decimal ShippingCost, bool FreeApplied)>
-        ResolveShippingAsync(Guid? userId, decimal subTotal, CancellationToken ct)
+    // CHANGED: returns full summary of the default method + effective cost
+    private async Task<ShippingMethodSummaryDto?> ResolveShippingAsync(Guid? userId, decimal subTotal, CancellationToken ct)
     {
-        if (userId is null)
-            return (null, 0m, false);
 
-        var address = await _context.UserAddresses
-            .OrderByDescending(a => a.IsDefault)
-            .FirstOrDefaultAsync(a => a.UserId == userId, ct);
-
-        if (address is null)
-            return (null, 0m, false);
-
-        var zone = await _context.ShippingZones
-            .Include(z => z.Methods)
-            .FirstOrDefaultAsync(z =>
-                z.CountryId == address.CountryId &&
-                (z.CityId == null || z.CityId == address.CityId), ct);
-
-        var method = zone?.Methods
-            .OrderByDescending(m => m.IsDefault)
-            .FirstOrDefault();
+        var method = await _context.ShippingMethods.FirstOrDefaultAsync(x => x.UserId == userId && x.IsDefault);
 
         if (method is null)
-            return (null, 0m, false);
+            return null;
 
-        if (method.FreeShippingThreshold.HasValue &&
-            subTotal >= method.FreeShippingThreshold.Value)
-            return (method.Id, 0m, true);
+        // Compute effective cost honoring free shipping threshold
+        var freeApplied = method.FreeShippingThreshold.HasValue && subTotal >= method.FreeShippingThreshold.Value;
 
-        decimal cost = method.Cost;
-        switch (method.CostType)
+        decimal effectiveCost;
+        if (freeApplied)
         {
-            case ShippingCostType.Flat:
-                cost = method.Cost;
-                break;
-            case ShippingCostType.ByTotal:
-                cost = Math.Round(subTotal * (method.Cost / 100m), 2, MidpointRounding.AwayFromZero);
-                break;
-            case ShippingCostType.ByWeight:
-                cost = method.Cost;
-                break;
-            default:
-                cost = method.Cost;
-                break;
+            effectiveCost = 0m;
+        }
+        else
+        {
+            switch (method.CostType)
+            {
+                case ShippingCostType.Flat:
+                    effectiveCost = method.Cost;
+                    break;
+                case ShippingCostType.ByTotal:
+                    effectiveCost = Math.Round(subTotal * (method.Cost / 100m), 2, MidpointRounding.AwayFromZero);
+                    break;
+                case ShippingCostType.ByWeight:
+                    effectiveCost = method.Cost; // weights not modeled
+                    break;
+                default:
+                    effectiveCost = method.Cost;
+                    break;
+            }
         }
 
-        return (method.Id, cost, false);
+        return new ShippingMethodSummaryDto
+        {
+            Id = method.Id,
+            CostType = method.CostType,
+            BaseCost = method.Cost,
+            EffectiveCost = effectiveCost,
+            EstimatedTime = method.EstimatedTime,
+            IsDefault = method.IsDefault,
+            FreeShippingThreshold = method.FreeShippingThreshold,
+            FreeShippingApplied = freeApplied
+        };
+    }
+
+    // Local function
+    private decimal ComputeDiscount(ProductSetting setting, decimal unitPrice, int qty)
+    {
+        var line = unitPrice * qty;
+        return setting.Kind switch
+        {
+            DiscountKind.Percentage => Math.Round(line * (setting.Value / 100m), 2, MidpointRounding.AwayFromZero),
+            DiscountKind.FixedAmount => Math.Round(setting.Value * qty, 2, MidpointRounding.AwayFromZero),
+            _ => 0m
+        };
     }
 }

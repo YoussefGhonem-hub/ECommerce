@@ -66,7 +66,6 @@ public class UpdateUserAddressHandler : IRequestHandler<UpdateUserAddressCommand
         }
 
         // Apply updates (full set of properties)
-        address.CountryId = request.CountryId;
         address.CityId = request.CityId;
         address.Street = request.Street.Trim();
         address.FullName = request.FullName.Trim();

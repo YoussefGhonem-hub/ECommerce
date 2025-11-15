@@ -5,6 +5,9 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 	</PropertyGroup>
 	<ItemGroup>
+	  <Content Remove="wwwroot\SeedData\eg.locations.json" />
+	</ItemGroup>
+	<ItemGroup>
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.8">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -21,5 +24,8 @@
 		<ProjectReference Include="..\ECommerce.Infrastructure\ECommerce.Infrastructure.csproj" />
 		<ProjectReference Include="..\ECommerce.Domain\ECommerce.Domain.csproj" />
 		<ProjectReference Include="..\ECommerce.Shared\ECommerce.Shared.csproj" />
+	</ItemGroup>
+	<ItemGroup>
+	  <None Include="wwwroot\SeedData\eg.locations.json" />
 	</ItemGroup>
 </Project>

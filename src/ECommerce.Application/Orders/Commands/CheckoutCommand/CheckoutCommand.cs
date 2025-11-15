@@ -137,7 +137,6 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
                 var zone = await _context.ShippingZones
                     .Include(z => z.Methods)
                     .FirstOrDefaultAsync(z =>
-                        z.CountryId == address.CountryId &&
                         (z.CityId == null || z.CityId == address.CityId),
                         cancellationToken);
 
@@ -328,7 +327,6 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
             {
                 UserId = CurrentUser.Id,
                 FullName = request.NewAddress.FullName,
-                CountryId = request.NewAddress.CountryId,
                 CityId = request.NewAddress.CityId,
                 Street = request.NewAddress.Street,
                 MobileNumber = request.NewAddress.MobileNumber,

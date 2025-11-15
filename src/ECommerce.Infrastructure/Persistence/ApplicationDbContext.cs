@@ -23,6 +23,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     public DbSet<Cart> Carts => Set<Cart>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<UserAddress> UserAddresses => Set<UserAddress>();
+    public DbSet<ProductSetting> ProductSettings => Set<ProductSetting>();
     public DbSet<FavoriteProduct> FavoriteProducts => Set<FavoriteProduct>();
     public DbSet<ProductReview> ProductReviews => Set<ProductReview>();
     public DbSet<ShippingZone> ShippingZones => Set<ShippingZone>();

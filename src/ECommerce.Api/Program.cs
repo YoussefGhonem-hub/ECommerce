@@ -55,12 +55,13 @@ using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
     var db = services.GetRequiredService<ApplicationDbContext>();
-
     await db.Database.MigrateAsync();
 
     var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
     var roleManager = services.GetRequiredService<RoleManager<ApplicationRole>>();
-    await AppDbContextSeed.SeedAsync(db, userManager, roleManager);
+    var env = services.GetRequiredService<IWebHostEnvironment>(); // ADDED
+
+    await AppDbContextSeed.SeedAsync(db, userManager, roleManager, env); // CHANGED
 }
 
 app.UseSwagger();

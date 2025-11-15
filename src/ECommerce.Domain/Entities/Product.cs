@@ -27,5 +27,8 @@ public class Product : BaseAuditableEntity
     public ICollection<ProductImage> Images { get; set; } = new List<ProductImage>();
     public ICollection<ProductReview> ProductReviews { get; set; } = new List<ProductReview>();
     public ICollection<FavoriteProduct> FavoriteProducts { get; set; } = new List<FavoriteProduct>();
+    public ProductSetting? ProductSettings { get; set; }
+    public Guid? ProductSettingId { get; set; }
+
     public string? MainImagePath => Images.FirstOrDefault(i => i.IsMain)?.Path;
 }

@@ -1,4 +1,5 @@
 using ECommerce.Domain.Entities;
+using Microsoft.AspNetCore.Hosting; // ADDED
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -10,7 +11,8 @@ public static class AppDbContextSeed
     public static async Task SeedAsync(
         ApplicationDbContext context,
         UserManager<ApplicationUser> userManager,
-        RoleManager<ApplicationRole> roleManager)
+        RoleManager<ApplicationRole> roleManager,
+        IWebHostEnvironment env) // ADDED
     {
         await SeedRolesAsync(roleManager);
         await SeedUsersAsync(userManager);
@@ -18,18 +20,34 @@ public static class AppDbContextSeed
         await SeedCategoriesAsync(context);
         await SeedProductsAsync(context);
         await SeedFeaturedProductsAsync(context);
-        // Seed only Fashion products (+ attributes Color/Size, mappings, reviews, and AverageRating)
         await SeedFashionCatalogAsync(context, userManager);
-
         await SeedProductAttributesForTShirtsAsync(context);
-
-        // CHANGED: pass userManager to seed coupons with Admin user id
         await SeedCouponsAsync(context, userManager);
-
-        await SeedCountriesAndCitiesAsync(context); // NEW
+        await SeedProductSettingsAsync(context); // ADDED
+        await SeedCountriesAndCitiesAsync(context, env);
         await SeedFreeShippingMethodAsync(context, threshold: 1000m, baseCost: 50m);
-        //await SeedFreeShippingMethodForCitiesAsync(context, threshold: 1000m, baseCost: 50m, citiesEn: new[] { "Cairo" });
     }
+    private static async Task SeedProductSettingsAsync(ApplicationDbContext context)
+    {
+        if (await context.ProductSettings.AnyAsync())
+            return;
+
+        var now = DateTimeOffset.UtcNow;
+
+        var setting = new ProductSetting
+        {
+            Kind = DiscountKind.FixedAmount,
+            Value = 10m,
+            AppliesToAllProducts = true,
+            StartDate = now.AddDays(-1),
+            EndDate = now.AddMonths(6),
+            IsActive = true
+        };
+
+        context.ProductSettings.Add(setting);
+        await context.SaveChangesAsync();
+    }
+
     private static async Task SeedCouponsAsync(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
     {
         if (await context.Coupons.AnyAsync())
@@ -214,64 +232,37 @@ public static class AppDbContextSeed
         await context.SaveChangesAsync();
     }
 
-    private static async Task SeedCountriesAndCitiesAsync(ApplicationDbContext context)
+    private static async Task SeedCountriesAndCitiesAsync(ApplicationDbContext context, IWebHostEnvironment env) // CHANGED
     {
         // Skip if already seeded
         if (await context.Countries.AnyAsync())
             return;
 
-        var fileName = "eg.locations.json";
-        // Assume file copied to output directory (Content + Copy if newer)
-        var potentialPaths = new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, "SeedData", fileName),
-            Path.Combine(AppContext.BaseDirectory, fileName),
-            // Fallback to source relative (dev-time)
-            Path.Combine(Directory.GetCurrentDirectory(), "src", "ECommerce.Infrastructure", "Persistence", "SeedData", fileName)
-        };
-
-        var path = potentialPaths.FirstOrDefault(File.Exists);
-        if (path is null)
-            return; // File not found; silently skip
+        var path = Path.Combine(env.WebRootPath, "SeedData", "eg.locations.json"); // CHANGED
+        if (!File.Exists(path))
+            return;
 
         var json = await File.ReadAllTextAsync(path);
-        var root = JsonSerializer.Deserialize<RootSeed>(json, new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        });
-
+        var root = JsonSerializer.Deserialize<RootSeed>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         if (root?.Countries is null || root.Countries.Count == 0)
             return;
 
         foreach (var countrySeed in root.Countries)
         {
             // Create country
-            var country = new Country
-            {
-                NameEn = countrySeed.NameEn,
-                NameAr = countrySeed.NameAr
-            };
+            var country = new Country { NameEn = countrySeed.NameEn, NameAr = countrySeed.NameAr };
             context.Countries.Add(country);
             await context.SaveChangesAsync();
 
             // Cities
             foreach (var citySeed in countrySeed.Cities)
             {
-                var city = new City
-                {
-                    NameEn = citySeed.NameEn,
-                    NameAr = citySeed.NameAr,
-                    CountryId = country.Id
-                };
+                var city = new City { NameEn = citySeed.NameEn, NameAr = citySeed.NameAr, CountryId = country.Id };
                 context.Cities.Add(city);
                 await context.SaveChangesAsync();
 
                 // ShippingZone per city (Country + City)
-                var zone = new ShippingZone
-                {
-                    CountryId = country.Id,
-                    CityId = city.Id
-                };
+                var zone = new ShippingZone { CountryId = country.Id, CityId = city.Id };
                 context.ShippingZones.Add(zone);
                 await context.SaveChangesAsync();
             }
