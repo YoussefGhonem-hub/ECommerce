@@ -6,23 +6,24 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Application.UserAddresses.Queries;
 
-public record GetMyAddressesQuery() : IRequest<Result<List<MyAddressDto>>>;
+public record GetMyDefaultAddressQuery() : IRequest<Result<MyAddressDto?>>;
 
-public class GetMyAddressesHandler : IRequestHandler<GetMyAddressesQuery, Result<List<MyAddressDto>>>
+public class GetMyAddressesDefaultHandler : IRequestHandler<GetMyDefaultAddressQuery, Result<MyAddressDto?>>
 {
     private readonly ApplicationDbContext _context;
 
-    public GetMyAddressesHandler(ApplicationDbContext context)
+    public GetMyAddressesDefaultHandler(ApplicationDbContext context)
     {
         _context = context;
     }
 
-    public async Task<Result<List<MyAddressDto>>> Handle(GetMyAddressesQuery request, CancellationToken cancellationToken)
+    public async Task<Result<MyAddressDto?>> Handle(GetMyDefaultAddressQuery request, CancellationToken cancellationToken)
     {
-        var items = await _context.UserAddresses
+        var userId = CurrentUser.Id;
+
+        var dto = await _context.UserAddresses
             .AsNoTracking()
-            .Where(a => a.UserId == CurrentUser.Id)
-            .OrderByDescending(a => a.IsDefault)
+            .Where(a => a.UserId == userId && a.IsDefault)
             .Select(a => new MyAddressDto
             {
                 Id = a.Id,
@@ -39,8 +40,9 @@ public class GetMyAddressesHandler : IRequestHandler<GetMyAddressesQuery, Result
                 HouseNo = a.HouseNo,
                 IsDefault = a.IsDefault
             })
-            .ToListAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken);
 
-        return Result<List<MyAddressDto>>.Success(items);
+        // Return Success with null if no default address is set.
+        return Result<MyAddressDto?>.Success(dto);
     }
 }

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Application.UserAddresses.Commands;
 
-public record DeleteUserAddressCommand(Guid Id, string UserId) : IRequest<Result<bool>>;
+public record DeleteUserAddressCommand(Guid Id) : IRequest<Result<bool>>;
 public class DeleteUserAddressHandler : IRequestHandler<DeleteUserAddressCommand, Result<bool>>
 {
     private readonly ApplicationDbContext _context;

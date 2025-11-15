@@ -1,4 +1,5 @@
 using ECommerce.Application.Common;
+using ECommerce.Application.Orders.Commands.CheckoutCommand.Dtos;
 using ECommerce.Domain.Entities;
 using ECommerce.Infrastructure.Persistence;
 using ECommerce.Shared.CurrentUser;
@@ -15,7 +16,6 @@ public record AddToCartCommand(
 ) : IRequest<Result<bool>>;
 
 // Attribute + optional value (predefined values may be null for free-form attributes)
-public record SelectedAttributeDto(Guid AttributeId, Guid? ValueId);
 
 public class AddToCartHandler : IRequestHandler<AddToCartCommand, Result<bool>>
 {

@@ -1,14 +1,12 @@
 using ECommerce.Application.UserAddresses.Commands;
 using ECommerce.Application.UserAddresses.Queries;
 using MediatR;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ECommerce.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
 public class AddressesController : ControllerBase
 {
     private readonly IMediator _mediator;
@@ -18,13 +16,19 @@ public class AddressesController : ControllerBase
         _mediator = mediator;
     }
 
-    private string CurrentUserId => User.FindFirst("uid")!.Value;
 
     [HttpGet]
     public async Task<IActionResult> Get()
     {
-        var list = await _mediator.Send(new GetMyAddressesQuery(CurrentUserId));
-        return Ok(list);
+        var result = await _mediator.Send(new GetMyAddressesQuery());
+        return result.Succeeded ? Ok(result) : BadRequest(result);
+    }
+
+    [HttpGet("default")]
+    public async Task<IActionResult> GetDefault()
+    {
+        var result = await _mediator.Send(new GetMyDefaultAddressQuery());
+        return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 
     [HttpPost]
@@ -44,7 +48,7 @@ public class AddressesController : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        var result = await _mediator.Send(new DeleteUserAddressCommand(id, CurrentUserId));
+        var result = await _mediator.Send(new DeleteUserAddressCommand(id));
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 }
