@@ -21,9 +21,10 @@ public static class AppDbContextSeed
         await SeedProductsAsync(context);
         await SeedFeaturedProductsAsync(context);
         await SeedFashionCatalogAsync(context, userManager);
+        await SeedAdminUserAddressesAsync(context, userManager);
         await SeedProductAttributesForTShirtsAsync(context);
         await SeedCouponsAsync(context, userManager);
-        await SeedProductSettingsAsync(context); // ADDED
+        await SeedProductSettingsAsync(context);
         await SeedCountriesAndCitiesAsync(context, env);
         await SeedFreeShippingMethodAsync(context, threshold: 1000m, baseCost: 50m);
     }
@@ -297,7 +298,69 @@ public static class AppDbContextSeed
             }
         }
     }
+    private static async Task SeedAdminUserAddressesAsync(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
+    {
+        // Ensure admin user exists
+        var admin = await userManager.FindByEmailAsync("admin@shop.com");
+        if (admin is null)
+            return;
 
+        // Avoid reseeding if admin already has addresses
+        var existingCount = await context.UserAddresses.CountAsync(a => a.UserId == admin.Id);
+        if (existingCount >= 3) // already seeded set
+            return;
+
+        // Require countries/cities
+        var egypt = await context.Countries.FirstOrDefaultAsync(c => c.NameEn == "Egypt");
+        if (egypt is null) return;
+
+        // Pick some cities (fallback to any if specific ones not found)
+        var cairo = await context.Cities.FirstOrDefaultAsync(c => c.NameEn == "Cairo" && c.CountryId == egypt.Id)
+                    ?? await context.Cities.FirstOrDefaultAsync(c => c.CountryId == egypt.Id);
+
+        var alex = await context.Cities.FirstOrDefaultAsync(c => c.NameEn == "Alexandria" && c.CountryId == egypt.Id)
+                   ?? cairo;
+
+        var giza = await context.Cities.FirstOrDefaultAsync(c => c.NameEn == "Giza" && c.CountryId == egypt.Id)
+                   ?? cairo;
+
+        var addresses = new List<UserAddress>
+        {
+            new UserAddress
+            {
+                UserId = admin.Id,
+                FullName = "Admin Home",
+                CityId = cairo!.Id,
+                Street = "123 Nile Corniche",
+                MobileNumber = "+201001112223",
+                HouseNo = "Bldg 5",
+                IsDefault = true
+            },
+            new UserAddress
+            {
+                UserId = admin.Id,
+                FullName = "Admin Office",
+                CityId = alex!.Id,
+                Street = "45 Port Gate Street",
+                MobileNumber = "+201001112224",
+                HouseNo = "Suite 12A",
+                IsDefault = false
+            },
+            new UserAddress
+            {
+                UserId = admin.Id,
+                FullName = "Admin Warehouse",
+                CityId = giza!.Id,
+                Street = "Industrial Zone 7",
+                MobileNumber = "+201001112225",
+                HouseNo = "Warehouse 3",
+                IsDefault = false
+            }
+        };
+
+        context.UserAddresses.AddRange(addresses);
+        await context.SaveChangesAsync();
+    }
 
     private static async Task SeedRolesAsync(RoleManager<ApplicationRole> roleManager)
     {

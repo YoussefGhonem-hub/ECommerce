@@ -1,6 +1,6 @@
 using ECommerce.Application.Common;
 using ECommerce.Infrastructure.Persistence;
-using ECommerce.Shared.CurrentUser;
+using ECommerce.Shared.Extensions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,7 +21,7 @@ public class GetMyAddressesHandler : IRequestHandler<GetMyAddressesQuery, Result
     {
         var items = await _context.UserAddresses
             .AsNoTracking()
-            .Where(a => a.UserId == CurrentUser.Id)
+            .Where(a => a.UserId == "12D864DC-1735-4C7B-E759-08DE241865BC".ToGuid())
             .OrderByDescending(a => a.IsDefault)
             .Select(a => new MyAddressDto
             {
