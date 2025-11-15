@@ -1,24 +1,22 @@
 using ECommerce.Application.Common;
+using ECommerce.Application.Orders.Commands.CheckoutCommand.Dtos;
 using ECommerce.Domain.Entities;
 using ECommerce.Infrastructure.Persistence;
+using ECommerce.Shared.CurrentUser;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
-namespace ECommerce.Application.Orders.Commands;
+namespace ECommerce.Application.Orders.Commands.CheckoutCommand;
 
-// Add optional attribute selections per cart item
 public record CheckoutCommand(
-    Guid UserId,
-    Guid ShippingAddressId,
+    Guid? ShippingAddressId,
     string? CouponCode = null,
     Guid? ShippingMethodId = null,
-    IReadOnlyList<OrderItemSelectionDto>? ItemSelections = null
+    IReadOnlyList<OrderItemSelectionDto>? ItemSelections = null,
+    UserAddressDto? NewAddress = null
 ) : IRequest<Result<Guid>>;
 
-// Per-cart-item attribute selections
-public record OrderItemSelectionDto(Guid CartItemId, IReadOnlyList<SelectedAttributeDto> Attributes);
-// Attribute + optional value (for attributes with a predefined value list)
-public record SelectedAttributeDto(Guid AttributeId, Guid? ValueId);
+
 
 public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Guid>>
 {
@@ -31,12 +29,12 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
 
     public async Task<Result<Guid>> Handle(CheckoutCommand request, CancellationToken cancellationToken)
     {
-        // Basic validation
-        if (request.UserId == Guid.Empty)
+
+        if (CurrentUser.Id == Guid.Empty)
         {
             return Result<Guid>.Validation(new()
             {
-                { nameof(request.UserId), new[] { "UserId is required." } }
+                { nameof(CurrentUser.Id), new[] { "UserId is required." } }
             });
         }
 
@@ -46,17 +44,17 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
             var cart = await _context.Carts
                 .Include(c => c.Items)
                     .ThenInclude(i => i.Product)
-                .FirstOrDefaultAsync(c => c.UserId == request.UserId, cancellationToken);
+                .FirstOrDefaultAsync(c => c.UserId == CurrentUser.Id, cancellationToken);
 
             if (cart is null || cart.Items.Count == 0)
                 return Result<Guid>.Failure("Cart is empty.");
 
-            // Validate shipping address ownership
-            var addressExists = await _context.UserAddresses
-                .AnyAsync(a => a.Id == request.ShippingAddressId && a.UserId == request.UserId, cancellationToken);
+            // Resolve shipping address: either existing by Id or create from DTO
+            var addressResult = await ResolveOrCreateAddressAsync(request, cancellationToken);
+            if (!addressResult.Succeeded)
+                return Result<Guid>.Failure("Invalid shipping address.");
 
-            if (!addressExists)
-                return Result<Guid>.Failure("Shipping address not found.");
+            var address = addressResult.Data!;
 
             // Optional: load and validate coupon
             Coupon? coupon = null;
@@ -88,15 +86,11 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
                 })
                 .ToListAsync(cancellationToken);
 
-            // Build a lookup to speed up validation
             var allowedLookup = allowedMappings
                 .GroupBy(a => a.ProductId)
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.ToList()
-                );
+                .ToDictionary(g => g.Key, g => g.ToList());
 
-            // Validate stock and compute totals; set unit prices from current product price
+            // Validate stock and compute subtotal
             decimal subTotal = 0m;
             foreach (var item in cart.Items)
             {
@@ -112,7 +106,7 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
                 subTotal += unitPrice * item.Quantity;
             }
 
-            // Apply coupon
+            // Apply coupon discount
             var discount = 0m;
             if (coupon is not null)
             {
@@ -126,10 +120,63 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
             if (discount < 0) discount = 0;
             if (discount > subTotal) discount = subTotal;
 
-            // Shipping cost (basic). If you have ShippingMethod entity, load and use it here.
-            var shippingCost = 0m;
+            // Resolve shipping method
+            ShippingMethod? shippingMethod = null;
+
+            if (request.ShippingMethodId.HasValue)
+            {
+                shippingMethod = await _context.ShippingMethods
+                    .FirstOrDefaultAsync(sm => sm.Id == request.ShippingMethodId.Value, cancellationToken);
+
+                if (shippingMethod is null)
+                    return Result<Guid>.Failure("Selected shipping method not found.");
+            }
+            else
+            {
+                // Infer by address (CountryId/CityId -> zone -> default method)
+                var zone = await _context.ShippingZones
+                    .Include(z => z.Methods)
+                    .FirstOrDefaultAsync(z =>
+                        z.CountryId == address.CountryId &&
+                        (z.CityId == null || z.CityId == address.CityId),
+                        cancellationToken);
+
+                shippingMethod = zone?.Methods.OrderByDescending(m => m.IsDefault).FirstOrDefault();
+            }
+
+            // Compute shipping cost with free-shipping logic
+            decimal shippingCost = 0m;
+
             if (coupon?.FreeShipping == true)
+            {
                 shippingCost = 0m;
+            }
+            else if (shippingMethod is not null)
+            {
+                if (shippingMethod.FreeShippingThreshold.HasValue &&
+                    subTotal >= shippingMethod.FreeShippingThreshold.Value)
+                {
+                    shippingCost = 0m;
+                }
+                else
+                {
+                    switch (shippingMethod.CostType)
+                    {
+                        case ShippingCostType.Flat:
+                            shippingCost = shippingMethod.Cost;
+                            break;
+                        case ShippingCostType.ByTotal:
+                            shippingCost = Math.Round(subTotal * (shippingMethod.Cost / 100m), 2, MidpointRounding.AwayFromZero);
+                            break;
+                        case ShippingCostType.ByWeight:
+                            shippingCost = shippingMethod.Cost; // fallback (weights not modeled)
+                            break;
+                        default:
+                            shippingCost = shippingMethod.Cost;
+                            break;
+                    }
+                }
+            }
 
             var total = subTotal - discount + shippingCost;
 
@@ -140,13 +187,18 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
             // Create order with items and selected attributes
             var order = new Order
             {
-                UserId = request.UserId,
+                UserId = CurrentUser.Id,
                 OrderNumber = GenerateOrderNumber(),
                 Status = OrderStatus.Pending,
+
+                SubTotal = subTotal,
+                DiscountTotal = discount,
+                ShippingTotal = shippingCost,
                 Total = total,
-                ShippingAddressId = request.ShippingAddressId,
+
+                ShippingAddressId = address.Id,
                 CouponCode = coupon?.Code,
-                ShippingMethodId = request.ShippingMethodId
+                ShippingMethodId = shippingMethod?.Id ?? request.ShippingMethodId
             };
 
             var orderItems = new List<OrderItem>();
@@ -163,20 +215,15 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
                     UnitPrice = unitPrice,
                 };
 
-                // Attach selected attributes (if provided) and validate against allowed mappings for this product
                 if (selectionsByCartItemId.TryGetValue(ci.Id, out var selectedAttrs) && selectedAttrs is not null && selectedAttrs.Count > 0)
                 {
-                    // Avoid duplicates by AttributeId (keep first occurrence)
-                    var byAttr = selectedAttrs
-                        .GroupBy(a => a.AttributeId)
-                        .Select(g => g.First());
+                    var byAttr = selectedAttrs.GroupBy(a => a.AttributeId).Select(g => g.First());
 
                     if (!allowedLookup.TryGetValue(ci.ProductId, out var allowedForProduct))
                         return Result<Guid>.Failure($"No attributes are defined for product '{ci.Product.NameEn}' but selections were supplied.");
 
                     foreach (var sel in byAttr)
                     {
-                        // Validate pair (AttributeId, ValueId) belongs to this product
                         var match = allowedForProduct.FirstOrDefault(a =>
                             a.ProductAttributeId == sel.AttributeId &&
                             a.ProductAttributeValueId == sel.ValueId);
@@ -185,15 +232,15 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
                         {
                             return Result<Guid>.Failure(
                                 $"Invalid attribute selection for product '{ci.Product.NameEn}'. " +
-                                $"AttributeId={sel.AttributeId}, ValueId={(sel.ValueId?.ToString() ?? "null")} is not allowed.");
+                                $"AttributeId={sel.AttributeId}, ValueId={sel.ValueId?.ToString() ?? "null"} is not allowed.");
                         }
 
                         oi.Attributes.Add(new OrderItemAttribute
                         {
                             ProductAttributeId = sel.AttributeId,
                             ProductAttributeValueId = sel.ValueId,
-                            AttributeName = match.AttributeName, // snapshot
-                            Value = match.Value                   // snapshot (may be null)
+                            AttributeName = match.AttributeName,
+                            Value = match.Value
                         });
                     }
                 }
@@ -238,9 +285,79 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
         }
     }
 
+    private async Task<Result<UserAddress>> ResolveOrCreateAddressAsync(CheckoutCommand request, CancellationToken ct)
+    {
+        // Case 1: Existing address by Id
+        if (request.ShippingAddressId.HasValue)
+        {
+            var addr = await _context.UserAddresses
+                .FirstOrDefaultAsync(a => a.Id == request.ShippingAddressId.Value && a.UserId == CurrentUser.Id, ct);
+
+            if (addr is null)
+                return Result<UserAddress>.Failure("Shipping address not found.");
+
+            return Result<UserAddress>.Success(addr);
+        }
+
+        // Case 2: Create from NewAddress DTO
+        if (request.NewAddress is not null)
+        {
+            // Basic validation
+            var errors = new Dictionary<string, string[]>();
+
+            if (request.NewAddress.CountryId == Guid.Empty)
+                errors[nameof(request.NewAddress.CountryId)] = new[] { "CountryId is required." };
+            if (request.NewAddress.CityId == Guid.Empty)
+                errors[nameof(request.NewAddress.CityId)] = new[] { "CityId is required." };
+            if (string.IsNullOrWhiteSpace(request.NewAddress.Street))
+                errors[nameof(request.NewAddress.Street)] = new[] { "Street is required." };
+            if (string.IsNullOrWhiteSpace(request.NewAddress.FullName))
+                errors[nameof(request.NewAddress.FullName)] = new[] { "FullName is required." };
+            if (string.IsNullOrWhiteSpace(request.NewAddress.MobileNumber))
+                errors[nameof(request.NewAddress.MobileNumber)] = new[] { "MobileNumber is required." };
+
+            if (errors.Count > 0)
+                return Result<UserAddress>.Validation(errors);
+
+            // Ensure City belongs to Country
+            var city = await _context.Cities.FirstOrDefaultAsync(c => c.Id == request.NewAddress.CityId, ct);
+            if (city is null || city.CountryId != request.NewAddress.CountryId)
+                return Result<UserAddress>.Failure("Invalid CityId/CountryId combination.");
+
+            var entity = new UserAddress
+            {
+                UserId = CurrentUser.Id,
+                FullName = request.NewAddress.FullName,
+                CountryId = request.NewAddress.CountryId,
+                CityId = request.NewAddress.CityId,
+                Street = request.NewAddress.Street,
+                MobileNumber = request.NewAddress.MobileNumber,
+                HouseNo = request.NewAddress.HouseNo,
+                IsDefault = request.NewAddress.IsDefault
+            };
+
+            // If marking as default, unset any previous defaults for this user
+            if (entity.IsDefault)
+            {
+                var previousDefaults = await _context.UserAddresses
+                    .Where(a => a.UserId == CurrentUser.Id && a.IsDefault)
+                    .ToListAsync(ct);
+
+                foreach (var a in previousDefaults)
+                    a.IsDefault = false;
+            }
+
+            _context.UserAddresses.Add(entity);
+            await _context.SaveChangesAsync(ct);
+
+            return Result<UserAddress>.Success(entity);
+        }
+
+        return Result<UserAddress>.Failure("Either ShippingAddressId or NewAddress must be provided.");
+    }
+
     private static string GenerateOrderNumber()
     {
-        // Simple, sortable order number. Adjust to your preferred format.
         return $"ORD-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
     }
 }

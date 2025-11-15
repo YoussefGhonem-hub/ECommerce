@@ -1,5 +1,17 @@
 ﻿namespace ECommerce.Application.Carts.Queries.GetCartQuery;
 
+public class CheckoutSummaryDto
+{
+    public CartDto Cart { get; set; } = new CartDto();
+
+    public decimal SubTotal { get; set; }
+    public decimal DiscountTotal { get; set; }       // Reserved for future coupon logic
+    public decimal ShippingTotal { get; set; }
+    public decimal Total { get; set; }
+
+    public bool FreeShippingApplied { get; set; }
+    public Guid? ShippingMethodId { get; set; }
+}
 public class CartDto
 {
     public Guid Id { get; set; }

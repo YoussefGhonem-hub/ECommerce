@@ -6,7 +6,7 @@ using MediatR;
 
 namespace ECommerce.Application.UserAddresses.Commands;
 
-public record CreateUserAddressCommand(string Country, string City, string Street, string FullName, string? HouseNo, string MobileNumber) : IRequest<Result<Guid>>;
+public record CreateUserAddressCommand(Guid CountryId, Guid CityId, string Street, string FullName, string? HouseNo, string MobileNumber) : IRequest<Result<Guid>>;
 public class CreateUserAddressHandler : IRequestHandler<CreateUserAddressCommand, Result<Guid>>
 {
     private readonly ApplicationDbContext _context;
@@ -26,8 +26,8 @@ public class CreateUserAddressHandler : IRequestHandler<CreateUserAddressCommand
             FullName = request.FullName,
             HouseNo = request.HouseNo,
             MobileNumber = request.MobileNumber,
-            Country = request.Country,
-            City = request.City,
+            CountryId = request.CountryId,
+            CityId = request.CityId,
             Street = request.Street,
         };
         _context.UserAddresses.Add(address);

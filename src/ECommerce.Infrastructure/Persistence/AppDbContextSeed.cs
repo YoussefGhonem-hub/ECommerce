@@ -1,6 +1,7 @@
 using ECommerce.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace ECommerce.Infrastructure.Persistence;
 
@@ -17,12 +18,197 @@ public static class AppDbContextSeed
         await SeedCategoriesAsync(context);
         await SeedProductsAsync(context);
         await SeedFeaturedProductsAsync(context);
-
         // Seed only Fashion products (+ attributes Color/Size, mappings, reviews, and AverageRating)
         await SeedFashionCatalogAsync(context, userManager);
 
         await SeedProductAttributesForTShirtsAsync(context);
+
+        await SeedCountriesAndCitiesAsync(context); // NEW
+        await SeedFreeShippingMethodAsync(context, threshold: 1000m, baseCost: 50m);
+        //await SeedFreeShippingMethodForCitiesAsync(context, threshold: 1000m, baseCost: 50m, citiesEn: new[] { "Cairo" });
+
+
     }
+    private static async Task SeedFreeShippingMethodAsync(ApplicationDbContext context, decimal threshold, decimal baseCost)
+    {
+        // Check if such a method already exists
+        var method = await context.ShippingMethods
+            .Include(m => m.Zones)
+            .FirstOrDefaultAsync(m =>
+                m.FreeShippingThreshold == threshold &&
+                m.CostType == ShippingCostType.Flat &&
+                m.Cost == baseCost);
+
+        if (method is null)
+        {
+            method = new ShippingMethod
+            {
+                Cost = baseCost,
+                CostType = ShippingCostType.Flat,
+                EstimatedTime = "1-3 days",
+                IsDefault = true,              // make it the default pick
+                FreeShippingThreshold = threshold
+            };
+
+            // Attach to all zones
+            var zones = await context.ShippingZones.AsNoTracking().ToListAsync();
+            foreach (var z in zones)
+                method.Zones.Add(z);
+
+            context.ShippingMethods.Add(method);
+            await context.SaveChangesAsync();
+            return;
+        }
+
+        // Ensure attached to all zones (idempotent)
+        var allZones = await context.ShippingZones.AsNoTracking().Select(z => z.Id).ToListAsync();
+        var attached = method.Zones.Select(z => z.Id).ToHashSet();
+        var missingZoneIds = allZones.Where(id => !attached.Contains(id)).ToList();
+        if (missingZoneIds.Count > 0)
+        {
+            var missingZones = await context.ShippingZones.Where(z => missingZoneIds.Contains(z.Id)).ToListAsync();
+            foreach (var z in missingZones)
+                method.Zones.Add(z);
+
+            await context.SaveChangesAsync();
+        }
+    }
+
+    // Variant: seed the free-shipping method for specific cities only (by English city name)
+    private static async Task SeedFreeShippingMethodForCitiesAsync(ApplicationDbContext context, decimal threshold, decimal baseCost, IEnumerable<string> citiesEn)
+    {
+        var cityNames = citiesEn.Select(n => n.Trim()).Where(n => n.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (cityNames.Count == 0) return;
+
+        var targetZones = await context.ShippingZones
+            .Include(z => z.City)
+            .Where(z => z.CityId != null && z.City != null && cityNames.Contains(z.City.NameEn))
+            .ToListAsync();
+
+        if (targetZones.Count == 0) return;
+
+        var method = await context.ShippingMethods
+            .Include(m => m.Zones)
+            .FirstOrDefaultAsync(m =>
+                m.FreeShippingThreshold == threshold &&
+                m.CostType == ShippingCostType.Flat &&
+                m.Cost == baseCost);
+
+        if (method is null)
+        {
+            method = new ShippingMethod
+            {
+                Cost = baseCost,
+                CostType = ShippingCostType.Flat,
+                EstimatedTime = "1-3 days",
+                IsDefault = true,
+                FreeShippingThreshold = threshold
+            };
+            context.ShippingMethods.Add(method);
+        }
+
+        // Attach to the specific zones only
+        var attachedIds = method.Zones.Select(z => z.Id).ToHashSet();
+        foreach (var z in targetZones)
+            if (!attachedIds.Contains(z.Id))
+                method.Zones.Add(z);
+
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task SeedCountriesAndCitiesAsync(ApplicationDbContext context)
+    {
+        // Skip if already seeded
+        if (await context.Countries.AnyAsync())
+            return;
+
+        var fileName = "eg.locations.json";
+        // Assume file copied to output directory (Content + Copy if newer)
+        var potentialPaths = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "SeedData", fileName),
+            Path.Combine(AppContext.BaseDirectory, fileName),
+            // Fallback to source relative (dev-time)
+            Path.Combine(Directory.GetCurrentDirectory(), "src", "ECommerce.Infrastructure", "Persistence", "SeedData", fileName)
+        };
+
+        var path = potentialPaths.FirstOrDefault(File.Exists);
+        if (path is null)
+            return; // File not found; silently skip
+
+        var json = await File.ReadAllTextAsync(path);
+        var root = JsonSerializer.Deserialize<RootSeed>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        if (root?.Countries is null || root.Countries.Count == 0)
+            return;
+
+        foreach (var countrySeed in root.Countries)
+        {
+            // Create country
+            var country = new Country
+            {
+                NameEn = countrySeed.NameEn,
+                NameAr = countrySeed.NameAr
+            };
+            context.Countries.Add(country);
+            await context.SaveChangesAsync();
+
+            // Cities
+            foreach (var citySeed in countrySeed.Cities)
+            {
+                var city = new City
+                {
+                    NameEn = citySeed.NameEn,
+                    NameAr = citySeed.NameAr,
+                    CountryId = country.Id
+                };
+                context.Cities.Add(city);
+                await context.SaveChangesAsync();
+
+                // ShippingZone per city (Country + City)
+                var zone = new ShippingZone
+                {
+                    CountryId = country.Id,
+                    CityId = city.Id
+                };
+                context.ShippingZones.Add(zone);
+                await context.SaveChangesAsync();
+            }
+        }
+
+        // Optional: create a free shipping method for Cairo
+        var egypt = await context.Countries.FirstOrDefaultAsync(c => c.NameEn == "Egypt");
+        if (egypt != null)
+        {
+            var cairo = await context.Cities.FirstOrDefaultAsync(c => c.CountryId == egypt.Id && c.NameEn == "Cairo");
+            if (cairo != null)
+            {
+                var cairoZone = await context.ShippingZones.FirstAsync(z => z.CountryId == egypt.Id && z.CityId == cairo.Id);
+                var freeMethodExists = await context.ShippingMethods
+                    .Include(m => m.Zones)
+                    .AnyAsync(m => m.Cost == 0 && m.FreeShippingThreshold == 0 && m.Zones.Any(z => z.Id == cairoZone.Id));
+
+                if (!freeMethodExists)
+                {
+                    var freeMethod = new ShippingMethod
+                    {
+                        Cost = 0,
+                        CostType = ShippingCostType.Flat,
+                        EstimatedTime = "1-3 days",
+                        IsDefault = true,
+                        FreeShippingThreshold = 0
+                    };
+                    freeMethod.Zones.Add(cairoZone);
+                    context.ShippingMethods.Add(freeMethod);
+                    await context.SaveChangesAsync();
+                }
+            }
+        }
+    }
+
 
     private static async Task SeedRolesAsync(RoleManager<ApplicationRole> roleManager)
     {
@@ -368,4 +554,25 @@ public static class AppDbContextSeed
 
         await context.SaveChangesAsync();
     }
+
+    #region  JSON DTOs
+    private sealed class RootSeed
+    {
+        public List<CountrySeed> Countries { get; set; } = new();
+    }
+
+    private sealed class CountrySeed
+    {
+        public string NameEn { get; set; } = string.Empty;
+        public string NameAr { get; set; } = string.Empty;
+        public List<CitySeed> Cities { get; set; } = new();
+    }
+
+    private sealed class CitySeed
+    {
+        public string NameEn { get; set; } = string.Empty;
+        public string NameAr { get; set; } = string.Empty;
+    }
+    #endregion
 }
+

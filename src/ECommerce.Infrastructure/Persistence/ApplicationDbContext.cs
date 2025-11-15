@@ -12,6 +12,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     {
     }
 
+    public DbSet<Country> Countries => Set<Country>();
+    public DbSet<City> Cities => Set<City>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<CartItemAttribute> CartItemAttributes => Set<CartItemAttribute>();
     public DbSet<Product> Products => Set<Product>();
@@ -35,9 +37,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     public DbSet<FeaturedProduct> FeaturedProducts => Set<FeaturedProduct>();
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
-    {
-        return base.SaveChangesAsync(cancellationToken);
-    }
+        => base.SaveChangesAsync(cancellationToken);
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

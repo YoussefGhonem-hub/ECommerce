@@ -18,8 +18,9 @@ public class Order : BaseAuditableEntity
     public decimal Total { get; set; }
 
     // Shipping/Billing
-    public Guid ShippingAddressId { get; set; }                  // FK to UserAddress used by Checkout
-    public UserAddress ShippingAddress { get; set; } = new UserAddress();  // Snapshot if you persist a textual address
+    public Guid? ShippingAddressId { get; set; }                  // FK to UserAddress used by Checkout
+    public UserAddress? ShippingAddress { get; set; } = new UserAddress();  // Snapshot if you persist a textual address
+
 
     // Shipping method
     public Guid? ShippingMethodId { get; set; }                  // FK to ShippingMethod used by Checkout

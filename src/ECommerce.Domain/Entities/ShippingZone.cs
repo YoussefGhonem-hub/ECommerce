@@ -4,9 +4,12 @@ namespace ECommerce.Domain.Entities;
 
 public class ShippingZone : BaseAuditableEntity
 {
-    public string NameEn { get; set; } = string.Empty;
-    public string NameAr { get; set; } = string.Empty;
-    public string Country { get; set; } = string.Empty;
-    public string? City { get; set; }
+    public Guid CountryId { get; set; }
+    public Country? Country { get; set; }
+
+    public Guid? CityId { get; set; }
+    public City? City { get; set; }
+
+    // Many-to-many: a zone can be attached to many shipping methods, and vice versa
     public ICollection<ShippingMethod> Methods { get; set; } = new List<ShippingMethod>();
 }

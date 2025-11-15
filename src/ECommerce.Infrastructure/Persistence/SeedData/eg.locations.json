@@ -1,0 +1,142 @@
+﻿{
+  "countries": [
+    {
+      "nameEn": "Egypt",
+      "nameAr": "مصر",
+      "cities": [
+        {
+          "nameEn": "Cairo",
+          "nameAr": "القاهرة"
+        },
+        {
+          "nameEn": "Giza",
+          "nameAr": "الجيزة"
+        },
+        {
+          "nameEn": "Alexandria",
+          "nameAr": "الإسكندرية"
+        },
+        {
+          "nameEn": "Port Said",
+          "nameAr": "بورسعيد"
+        },
+        {
+          "nameEn": "Suez",
+          "nameAr": "السويس"
+        },
+        {
+          "nameEn": "Luxor",
+          "nameAr": "الأقصر"
+        },
+        {
+          "nameEn": "Aswan",
+          "nameAr": "أسوان"
+        },
+        {
+          "nameEn": "Asyut",
+          "nameAr": "أسيوط"
+        },
+        {
+          "nameEn": "Sohag",
+          "nameAr": "سوهاج"
+        },
+        {
+          "nameEn": "Qena",
+          "nameAr": "قنا"
+        },
+        {
+          "nameEn": "Minya",
+          "nameAr": "المنيا"
+        },
+        {
+          "nameEn": "Beni Suef",
+          "nameAr": "بني سويف"
+        },
+        {
+          "nameEn": "Fayoum",
+          "nameAr": "الفيوم"
+        },
+        {
+          "nameEn": "Ismailia",
+          "nameAr": "الإسماعيلية"
+        },
+        {
+          "nameEn": "Damietta",
+          "nameAr": "دمياط"
+        },
+        {
+          "nameEn": "El Mahalla El Kubra",
+          "nameAr": "المحلة الكبرى"
+        },
+        {
+          "nameEn": "Mansoura",
+          "nameAr": "المنصورة"
+        },
+        {
+          "nameEn": "Zagazig",
+          "nameAr": "الزقازيق"
+        },
+        {
+          "nameEn": "Tanta",
+          "nameAr": "طنطا"
+        },
+        {
+          "nameEn": "Kafr El Sheikh",
+          "nameAr": "كفر الشيخ"
+        },
+        {
+          "nameEn": "Damanhur",
+          "nameAr": "دمنهور"
+        },
+        {
+          "nameEn": "Shebin El-Kom",
+          "nameAr": "شبين الكوم"
+        },
+        {
+          "nameEn": "Banha",
+          "nameAr": "بنها"
+        },
+        {
+          "nameEn": "Marsa Matruh",
+          "nameAr": "مرسى مطروح"
+        },
+        {
+          "nameEn": "Arish",
+          "nameAr": "العريش"
+        },
+        {
+          "nameEn": "Sharm El Sheikh",
+          "nameAr": "شرم الشيخ"
+        },
+        {
+          "nameEn": "Hurghada",
+          "nameAr": "الغردقة"
+        },
+        {
+          "nameEn": "Kharga",
+          "nameAr": "الخارجة"
+        },
+        {
+          "nameEn": "Qalyub",
+          "nameAr": "قليوب"
+        },
+        {
+          "nameEn": "6th of October",
+          "nameAr": "السادس من أكتوبر"
+        },
+        {
+          "nameEn": "New Cairo",
+          "nameAr": "القاهرة الجديدة"
+        },
+        {
+          "nameEn": "Obour",
+          "nameAr": "العبور"
+        },
+        {
+          "nameEn": "10th of Ramadan",
+          "nameAr": "العاشر من رمضان"
+        }
+      ]
+    }
+  ]
+}
