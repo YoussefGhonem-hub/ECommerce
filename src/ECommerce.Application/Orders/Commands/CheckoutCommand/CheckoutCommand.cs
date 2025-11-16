@@ -38,7 +38,6 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
 
         try
         {
-            // 1) Load cart
             var cart = await LoadUserCartAsync(cancellationToken);
             if (cart is null || cart.Items.Count == 0)
                 return Result<Guid>.Failure("Cart is empty.");
