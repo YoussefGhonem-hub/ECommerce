@@ -3,7 +3,6 @@ using ECommerce.Application.Orders.Commands.CheckoutCommand.Dtos;
 using ECommerce.Domain.Entities;
 using ECommerce.Infrastructure.Persistence;
 using ECommerce.Shared.CurrentUser;
-using ECommerce.Shared.Extensions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -42,64 +41,60 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
             if (cart is null || cart.Items.Count == 0)
                 return Result<Guid>.Failure("Cart is empty.");
 
-            // 2) Resolve or create address
             var addressResult = await ResolveOrCreateAddressAsync(request, cancellationToken);
             if (!addressResult.Succeeded)
                 return Result<Guid>.Failure("Invalid shipping address.");
             var address = addressResult.Data!;
-
-            // 3) Validate coupon (optional)
             var couponResult = await ValidateAndGetCouponAsync(request.CouponCode, cancellationToken);
             if (!couponResult.Succeeded)
                 return Result<Guid>.Failure("Invalid or expired coupon.");
             var coupon = couponResult.Data;
 
-            // 4) Prepare attribute mappings for validation
             var productIds = cart.Items.Select(i => i.ProductId).Distinct().ToList();
             var allowedLookup = await PreloadAllowedAttributeMappingsAsync(productIds, cancellationToken);
 
-            // 5) Validate stock and compute subtotal
-            var subTotalResult = ValidateStockAndComputeSubtotal(cart);
+            // Quantity overrides dictionary
+            var quantityOverrides = (request.ItemSelections ?? Array.Empty<OrderItemSelectionDto>())
+                .GroupBy(s => s.CartItemId)
+                .ToDictionary(g => g.Key, g => g.First().Quantity);
+
+            var subTotalResult = ValidateStockAndComputeSubtotal(cart, quantityOverrides);
             if (!subTotalResult.Succeeded)
                 return Result<Guid>.Failure(subTotalResult.Errors?.FirstOrDefault() ?? "Invalid order items.");
             var subTotal = subTotalResult.Data;
 
-            // 6) Compute discount
             var discount = ComputeDiscount(subTotal, coupon);
 
-            // 7) Resolve shipping method
             var shippingMethodResult = await ResolveShippingMethodAsync(request, address, cancellationToken);
             if (!shippingMethodResult.Succeeded)
                 return Result<Guid>.Failure("Selected shipping method not found.");
             var shippingMethod = shippingMethodResult.Data;
 
-            // 8) Compute shipping cost
             var shippingCost = ComputeShippingCost(subTotal, coupon, shippingMethod);
 
-            // 9) Build order (validates selected attributes)
-            var orderResult = BuildOrder(cart, address, coupon, shippingMethod, subTotal, discount, shippingCost, request.ItemSelections, allowedLookup);
+            var orderResult = BuildOrder(
+                cart,
+                address,
+                coupon,
+                shippingMethod,
+                subTotal,
+                discount,
+                shippingCost,
+                request.ItemSelections,
+                allowedLookup,
+                quantityOverrides);
+
             if (!orderResult.Succeeded)
                 return Result<Guid>.Failure(orderResult.Errors?.FirstOrDefault() ?? "Failed to build order.");
             var order = orderResult.Data!;
 
-            // 10) Deduct stock and track coupon usage
-            DeductStockIfNeeded(cart);
+            DeductStockIfNeeded(cart, quantityOverrides);
             TrackCouponUsage(coupon);
 
-            // 11) Persist order and clear cart
             _context.Orders.Add(order);
             cart.Items.Clear();
-            try
-            {
-                await _context.SaveChangesAsync(cancellationToken);
 
-            }
-            catch (Exception ex)
-            {
-
-                throw;
-            }
-
+            await _context.SaveChangesAsync(cancellationToken);
             return Result<Guid>.Success(order.Id);
         }
         catch (OperationCanceledException)
@@ -112,13 +107,11 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
         }
     }
 
-    private async Task<Cart?> LoadUserCartAsync(CancellationToken ct)
-    {
-        return await _context.Carts
+    private async Task<Cart?> LoadUserCartAsync(CancellationToken ct) =>
+        await _context.Carts
             .Include(c => c.Items)
                 .ThenInclude(i => i.Product)
             .FirstOrDefaultAsync(c => c.UserId == CurrentUser.Id, ct);
-    }
 
     private async Task<Result<Coupon?>> ValidateAndGetCouponAsync(string? couponCode, CancellationToken ct)
     {
@@ -158,7 +151,10 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
             .ToDictionary(g => g.Key, g => g.ToList());
     }
 
-    private Result<decimal> ValidateStockAndComputeSubtotal(Cart cart)
+    // UPDATED: validates with quantity overrides
+    private Result<decimal> ValidateStockAndComputeSubtotal(
+        Cart cart,
+        Dictionary<Guid, int?> quantityOverrides)
     {
         decimal subTotal = 0m;
 
@@ -167,12 +163,19 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
             if (item.Product is null)
                 return Result<decimal>.Failure("One or more products no longer exist.");
 
+            var effectiveQty = quantityOverrides.TryGetValue(item.Id, out var overrideQty) && overrideQty.HasValue
+                ? overrideQty.Value
+                : item.Quantity;
+
+            if (effectiveQty <= 0)
+                return Result<decimal>.Failure($"Invalid quantity ({effectiveQty}) for product '{item.Product.NameEn}'.");
+
             var available = item.Product.StockQuantity;
             var allowBackorder = item.Product.AllowBackorder;
-            if (!allowBackorder && available < item.Quantity)
-                return Result<decimal>.Failure($"Insufficient stock for product '{item.Product.NameEn}'. Requested {item.Quantity}, available {available}.");
+            if (!allowBackorder && available < effectiveQty)
+                return Result<decimal>.Failure($"Insufficient stock for product '{item.Product.NameEn}'. Requested {effectiveQty}, available {available}.");
 
-            subTotal += item.Product.Price * item.Quantity;
+            subTotal += item.Product.Price * effectiveQty;
         }
 
         return Result<decimal>.Success(subTotal);
@@ -181,7 +184,6 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
     private decimal ComputeDiscount(decimal subTotal, Coupon? coupon)
     {
         if (coupon is null) return 0m;
-
         decimal discount = 0m;
 
         if (coupon.FixedAmount.HasValue)
@@ -210,39 +212,32 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
 
             return Result<ShippingMethod?>.Success(method);
         }
-        else
-        {
-            // Infer by address (CountryId/CityId -> zone -> default method)
-            var zone = await _context.ShippingZones
-                .Include(z => z.Methods)
-                .FirstOrDefaultAsync(z =>
-                    (z.CityId == null || z.CityId == address.CityId), ct);
 
-            var method = zone?.Methods.OrderByDescending(m => m.IsDefault).FirstOrDefault();
-            return Result<ShippingMethod?>.Success(method);
-        }
+        var zone = await _context.ShippingZones
+            .Include(z => z.Methods)
+            .FirstOrDefaultAsync(z =>
+                (z.CityId == null || z.CityId == address.CityId), ct);
+
+        var inferred = zone?.Methods.OrderByDescending(m => m.IsDefault).FirstOrDefault();
+        return Result<ShippingMethod?>.Success(inferred);
     }
 
     private decimal ComputeShippingCost(decimal subTotal, Coupon? coupon, ShippingMethod? method)
     {
-        if (coupon?.FreeShipping == true)
-            return 0m;
-
-        if (method is null)
-            return 0m;
-
-        if (method.FreeShippingThreshold.HasValue && subTotal >= method.FreeShippingThreshold.Value)
-            return 0m;
+        if (coupon?.FreeShipping == true) return 0m;
+        if (method is null) return 0m;
+        if (method.FreeShippingThreshold.HasValue && subTotal >= method.FreeShippingThreshold.Value) return 0m;
 
         return method.CostType switch
         {
             ShippingCostType.Flat => method.Cost,
             ShippingCostType.ByTotal => Math.Round(subTotal * (method.Cost / 100m), 2, MidpointRounding.AwayFromZero),
-            ShippingCostType.ByWeight => method.Cost, // weights not modeled
+            ShippingCostType.ByWeight => method.Cost, // weight not modeled
             _ => method.Cost
         };
     }
 
+    // UPDATED: uses quantityOverrides
     private Result<Order> BuildOrder(
         Cart cart,
         UserAddress address,
@@ -252,46 +247,57 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
         decimal discount,
         decimal shippingCost,
         IReadOnlyList<OrderItemSelectionDto>? itemSelections,
-        Dictionary<Guid, List<AllowedMapping>> allowedLookup)
+        Dictionary<Guid, List<AllowedMapping>> allowedLookup,
+        Dictionary<Guid, int?> quantityOverrides)
     {
         var selectionsByCartItemId = (itemSelections ?? Array.Empty<OrderItemSelectionDto>())
-            .ToDictionary(s => s.CartItemId, s => s.Attributes);
+            .GroupBy(s => s.CartItemId)
+            .ToDictionary(g => g.Key, g => g.First());
 
         var order = new Order
         {
             UserId = CurrentUser.Id,
             OrderNumber = GenerateOrderNumber(),
             Status = OrderStatus.Pending,
-
             SubTotal = subTotal,
             DiscountTotal = discount,
             ShippingTotal = shippingCost,
             Total = subTotal - discount + shippingCost,
 
-            ShippingAddress = null,
+            // Only set FK values
             ShippingAddressId = address.Id,
+            ShippingMethodId = shippingMethod?.Id,
             CouponCode = coupon?.Code,
-            ShippingMethodId = shippingMethod?.Id
+
+            // Ensure navigations are not populated (if present on Order entity)
+            ShippingAddress = null,
+            ShippingMethod = null
         };
 
         var orderItems = new List<OrderItem>();
 
         foreach (var ci in cart.Items)
         {
-            var unitPrice = ci.Product!.Price;
+            var effectiveQty = quantityOverrides.TryGetValue(ci.Id, out var overrideQty) && overrideQty.HasValue
+                ? overrideQty.Value
+                : ci.Quantity;
+
+            if (effectiveQty <= 0)
+                return Result<Order>.Failure($"Invalid quantity ({effectiveQty}) for product '{ci.Product!.NameEn}'.");
 
             var oi = new OrderItem
             {
                 OrderId = order.Id,
                 ProductId = ci.ProductId,
-                Quantity = ci.Quantity,
-                UnitPrice = unitPrice,
+                Quantity = effectiveQty,
+                UnitPrice = ci.Product!.Price
             };
 
-            if (selectionsByCartItemId.TryGetValue(ci.Id, out var selectedAttrs) &&
-                selectedAttrs is not null && selectedAttrs.Count > 0)
+            if (selectionsByCartItemId.TryGetValue(ci.Id, out var selection) &&
+                selection.Attributes is not null &&
+                selection.Attributes.Count > 0)
             {
-                var byAttr = selectedAttrs.GroupBy(a => a.AttributeId).Select(g => g.First());
+                var byAttr = selection.Attributes.GroupBy(a => a.AttributeId).Select(g => g.First());
 
                 if (!allowedLookup.TryGetValue(ci.ProductId, out var allowedForProduct))
                     return Result<Order>.Failure($"No attributes are defined for product '{ci.Product!.NameEn}' but selections were supplied.");
@@ -303,11 +309,8 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
                         a.ProductAttributeValueId == sel.ValueId);
 
                     if (match is null)
-                    {
                         return Result<Order>.Failure(
-                            $"Invalid attribute selection for product '{ci.Product!.NameEn}'. " +
-                            $"AttributeId={sel.AttributeId}, ValueId={sel.ValueId?.ToString() ?? "null"} is not allowed.");
-                    }
+                            $"Invalid attribute selection for product '{ci.Product!.NameEn}'. AttributeId={sel.AttributeId}, ValueId={sel.ValueId?.ToString() ?? "null"} is not allowed.");
 
                     oi.Attributes.Add(new OrderItemAttribute
                     {
@@ -326,13 +329,18 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
         return Result<Order>.Success(order);
     }
 
-    private void DeductStockIfNeeded(Cart cart)
+    // UPDATED: deducts effective quantities
+    private void DeductStockIfNeeded(Cart cart, Dictionary<Guid, int?> quantityOverrides)
     {
         foreach (var ci in cart.Items)
         {
+            var effectiveQty = quantityOverrides.TryGetValue(ci.Id, out var overrideQty) && overrideQty.HasValue
+                ? overrideQty.Value
+                : ci.Quantity;
+
             if (!ci.Product!.AllowBackorder)
             {
-                ci.Product.StockQuantity -= ci.Quantity;
+                ci.Product.StockQuantity -= effectiveQty;
                 if (ci.Product.StockQuantity < 0)
                     ci.Product.StockQuantity = 0;
             }
@@ -347,11 +355,10 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
 
     private async Task<Result<UserAddress>> ResolveOrCreateAddressAsync(CheckoutCommand request, CancellationToken ct)
     {
-        // Case 1: Existing address by Id
         if (request.ShippingAddressId.HasValue)
         {
             var addr = await _context.UserAddresses
-                .FirstOrDefaultAsync(a => a.Id == request.ShippingAddressId.Value && a.UserId == "12D864DC-1735-4C7B-E759-08DE241865BC".ToGuid(), ct);
+                .FirstOrDefaultAsync(a => a.Id == request.ShippingAddressId.Value, ct);
 
             if (addr is null)
                 return Result<UserAddress>.Failure("Shipping address not found.");
@@ -359,7 +366,6 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
             return Result<UserAddress>.Success(addr);
         }
 
-        // Case 2: Create from NewAddress DTO
         if (request.NewAddress is not null)
         {
             var errors = new Dictionary<string, string[]>();
@@ -378,7 +384,6 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
             if (errors.Count > 0)
                 return Result<UserAddress>.Validation(errors);
 
-            // Ensure City exists + belongs to Country
             var city = await _context.Cities.AsNoTracking().FirstOrDefaultAsync(c => c.Id == request.NewAddress.CityId, ct);
             if (city is null || city.CountryId != request.NewAddress.CountryId)
                 return Result<UserAddress>.Failure("Invalid CityId/CountryId combination.");
@@ -420,10 +425,8 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
         return Result<UserAddress>.Failure("Either ShippingAddressId or NewAddress must be provided.");
     }
 
-    private static string GenerateOrderNumber()
-    {
-        return $"ORD-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
-    }
+    private static string GenerateOrderNumber() =>
+        $"ORD-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
 
     private sealed class AllowedMapping
     {
