@@ -111,7 +111,7 @@ public class CheckoutCommandHandler : IRequestHandler<CheckoutCommand, Result<Gu
         await _context.Carts
             .Include(c => c.Items)
                 .ThenInclude(i => i.Product)
-            .FirstOrDefaultAsync(c => c.UserId == CurrentUser.Id, ct);
+            .FirstOrDefaultAsync(c => c.UserId == CurrentUser.Id || c.GuestId == CurrentUser.GuestId, ct);
 
     private async Task<Result<Coupon?>> ValidateAndGetCouponAsync(string? couponCode, CancellationToken ct)
     {

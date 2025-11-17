@@ -1,6 +1,7 @@
 using ECommerce.Application.Orders.Commands.CheckoutCommand;
 using ECommerce.Application.Orders.Queries.GetMyOrders;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ECommerce.Api.Controllers;
@@ -24,6 +25,7 @@ public class OrdersController : ControllerBase
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }
     [HttpPost("checkout")]
+    [Authorize]
     public async Task<IActionResult> CheckoutCommand(CheckoutCommand command)
     {
         var result = await _mediator.Send(command);

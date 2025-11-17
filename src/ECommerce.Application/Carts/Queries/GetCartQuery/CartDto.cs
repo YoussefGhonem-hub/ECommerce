@@ -5,21 +5,15 @@ namespace ECommerce.Application.Carts.Queries.GetCartQuery;
 public class CheckoutSummaryDto
 {
     public CartDto Cart { get; set; } = new CartDto();
-
     public decimal SubTotal { get; set; }
     public decimal DiscountTotal { get; set; }
     public decimal ShippingTotal { get; set; }
     public decimal Total { get; set; }
-
     public bool FreeShippingApplied { get; set; }
     public Guid? ShippingMethodId { get; set; }
-
     public decimal ItemDiscount { get; set; }
     public decimal ShippingDiscount { get; set; }
-    // NEW: return selected shipping method details
     public ShippingMethodSummaryDto? SelectedShippingMethod { get; set; }
-
-    // Added: available, valid coupons for the current user/time window
     public List<CouponDto> Coupons { get; set; } = new();
 }
 
@@ -34,26 +28,25 @@ public class CartItemDto
 {
     public Guid Id { get; set; }
     public Guid ProductId { get; set; }
-
     public string ProductName { get; set; } = string.Empty;
     public string? Brand { get; set; }
     public string CategoryNameEn { get; set; } = string.Empty;
     public string CategoryNameAr { get; set; } = string.Empty;
-
     public string? MainImagePath { get; set; } =
         "https://images.pexels.com/photos/90946/pexels-photo-90946.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=500";
-
     public double AverageRating { get; set; }
     public bool IsInWishlist { get; set; }
     public bool IsInCart { get; set; }
-
     public decimal Price { get; set; }
     public int StockQuantity { get; set; }
     public int Quantity { get; set; }
-
     public decimal SubTotal => Price * Quantity;
 
+    // Line-level user selections (e.g., Color=Black, Size=L)
     public List<CartItemAttributeDto> SelectedAttributes { get; set; } = new();
+
+    // NEW: All available attribute/value options for this product
+    public List<CartItemAttributeDto> ProductAttributes { get; set; } = new();
 }
 
 public class CartItemAttributeDto
@@ -64,7 +57,6 @@ public class CartItemAttributeDto
     public string? Value { get; set; }
 }
 
-// NEW: includes base and effective cost for the selected (default) method
 public class ShippingMethodSummaryDto
 {
     public Guid Id { get; set; }
@@ -76,5 +68,4 @@ public class ShippingMethodSummaryDto
     public decimal? FreeShippingThreshold { get; set; }
     public bool FreeShippingApplied { get; set; }
     public decimal CalculatedCostWithoutFree { get; set; }
-
 }

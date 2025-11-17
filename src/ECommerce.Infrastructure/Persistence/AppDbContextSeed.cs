@@ -1,5 +1,5 @@
 using ECommerce.Domain.Entities;
-using Microsoft.AspNetCore.Hosting; // ADDED
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -12,26 +12,65 @@ public static class AppDbContextSeed
         ApplicationDbContext context,
         UserManager<ApplicationUser> userManager,
         RoleManager<ApplicationRole> roleManager,
-        IWebHostEnvironment env) // ADDED
+        IWebHostEnvironment env)
     {
         await SeedRolesAsync(roleManager);
         await SeedUsersAsync(userManager);
 
+        // Prefer the Admin account, not SuperAdmin
+        var adminId = await GetAdminUserIdAsync(userManager);              // CHANGED
+        var customerId = await GetFirstUserIdInRoleAsync(userManager, "Customer");
+
         await SeedCategoriesAsync(context);
-        await SeedProductsAsync(context);
+        await SeedProductsAsync(context, adminId);
         await SeedFeaturedProductsAsync(context);
         await SeedFashionCatalogAsync(context, userManager);
-        await SeedAdminUserAddressesAsync(context, userManager);
-        await SeedProductAttributesForTShirtsAsync(context);
-        await SeedCouponsAsync(context, userManager);
-        await SeedProductSettingsAsync(context);
+        await SeedCustomerUserAddressesAsync(context, customerId);
+        await SeedProductAttributesForTShirtsAsync(context, adminId);
+        await SeedCouponsAsync(context, userManager, adminId);
+        await SeedProductSettingsAsync(context, adminId);
         await SeedCountriesAndCitiesAsync(context, env);
         await SeedFreeShippingMethodAsync(context, threshold: 1000m, baseCost: 50m);
     }
-    private static async Task SeedProductSettingsAsync(ApplicationDbContext context)
+
+    private static async Task<Guid?> GetFirstUserIdInRoleAsync(UserManager<ApplicationUser> userManager, string role)
+    {
+        var users = await userManager.GetUsersInRoleAsync(role);
+        return users.FirstOrDefault()?.Id;
+    }
+
+    // NEW: prefer the dedicated Admin user over any SuperAdmin (who is also in Admin)
+    private static async Task<Guid?> GetAdminUserIdAsync(UserManager<ApplicationUser> userManager)
+    {
+        // Prefer the known seeded admin account
+        var admin = await userManager.FindByEmailAsync("admin@shop.com");
+        if (admin != null) return admin.Id;
+
+        // Fallback to any user in Admin role excluding SuperAdmins
+        var admins = await userManager.GetUsersInRoleAsync("Admin");
+        if (admins == null || admins.Count == 0) return null;
+
+        var superAdmins = await userManager.GetUsersInRoleAsync("SuperAdmin");
+        var superAdminIds = new HashSet<Guid>(superAdmins.Select(u => u.Id));
+
+        var pureAdmin = admins.FirstOrDefault(u => !superAdminIds.Contains(u.Id));
+        return pureAdmin?.Id ?? admins.First().Id;
+    }
+
+    private static async Task SeedProductSettingsAsync(ApplicationDbContext context, Guid? adminId)
     {
         if (await context.ProductSettings.AnyAsync())
+        {
+            // Ensure existing settings have a UserId if missing
+            var withoutUser = await context.ProductSettings.Where(ps => ps.UserId == null && adminId != null).ToListAsync();
+            if (withoutUser.Count > 0)
+            {
+                foreach (var ps in withoutUser)
+                    ps.UserId = adminId;
+                await context.SaveChangesAsync();
+            }
             return;
+        }
 
         var now = DateTimeOffset.UtcNow;
 
@@ -42,27 +81,28 @@ public static class AppDbContextSeed
             AppliesToAllProducts = true,
             StartDate = now.AddDays(-1),
             EndDate = now.AddMonths(6),
-            IsActive = true
+            IsActive = true,
+            UserId = adminId // CHANGED
         };
 
         context.ProductSettings.Add(setting);
         await context.SaveChangesAsync();
     }
 
-    private static async Task SeedCouponsAsync(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
+    private static async Task SeedCouponsAsync(ApplicationDbContext context, UserManager<ApplicationUser> userManager, Guid? adminId)
     {
         if (await context.Coupons.AnyAsync())
-            return;
-
-        // Try to get Admin by the seeded email; fallback to first user in Admin role
-        var admin = await userManager.FindByEmailAsync("admin@shop.com");
-        if (admin is null)
         {
-            var admins = await userManager.GetUsersInRoleAsync("Admin");
-            admin = admins.FirstOrDefault();
+            // Backfill missing UserId for existing coupons
+            var missingUser = await context.Coupons.Where(c => c.UserId == null && adminId != null).ToListAsync();
+            if (missingUser.Count > 0)
+            {
+                foreach (var c in missingUser)
+                    c.UserId = adminId;
+                await context.SaveChangesAsync();
+            }
+            return;
         }
-
-        var adminId = (Guid?)admin?.Id;
 
         var now = DateTimeOffset.UtcNow;
         var longEnd = now.AddMonths(12);
@@ -71,139 +111,23 @@ public static class AppDbContextSeed
 
         var coupons = new List<Coupon>
         {
-            new Coupon
-            {
-                Code = "WELCOME50",
-                FixedAmount = 50m,
-                Percentage = null,
-                FreeShipping = false,
-                StartDate = now.AddDays(-7),
-                EndDate = longEnd,
-                UsageLimit = 1000,
-                TimesUsed = 0,
-                PerUserLimit = 1,
-                IsActive = true,
-                UserId = adminId
-            },
-            new Coupon
-            {
-                Code = "SAVE10",
-                FixedAmount = null,
-                Percentage = 10m,
-                FreeShipping = false,
-                StartDate = now.AddDays(-7),
-                EndDate = midEnd,
-                UsageLimit = 2000,
-                TimesUsed = 0,
-                PerUserLimit = 3,
-                IsActive = true,
-                UserId = adminId
-            },
-            new Coupon
-            {
-                Code = "FREESHIP",
-                FixedAmount = null,
-                Percentage = null,
-                FreeShipping = true,
-                StartDate = now.AddDays(-7),
-                EndDate = longEnd,
-                UsageLimit = null,     // unlimited
-                TimesUsed = 0,
-                PerUserLimit = null,   // unlimited per user
-                IsActive = true,
-                UserId = adminId
-            },
-            new Coupon
-            {
-                Code = "BF25FS",
-                FixedAmount = null,
-                Percentage = 25m,
-                FreeShipping = true,
-                StartDate = now.AddDays(-3),
-                EndDate = shortEnd,
-                UsageLimit = 500,
-                TimesUsed = 0,
-                PerUserLimit = 2,
-                IsActive = true,
-                UserId = adminId
-            },
-            new Coupon
-            {
-                Code = "VIP100",
-                FixedAmount = 100m,
-                Percentage = null,
-                FreeShipping = false,
-                StartDate = now.AddDays(-1),
-                EndDate = longEnd,
-                UsageLimit = null,     // unlimited global
-                TimesUsed = 0,
-                PerUserLimit = 5,
-                IsActive = true,
-                UserId = adminId
-            }
+            new Coupon { Code = "WELCOME50", FixedAmount = 50m, StartDate = now.AddDays(-7), EndDate = longEnd, UsageLimit = 1000, TimesUsed = 0, PerUserLimit = 1, IsActive = true, UserId = adminId },
+            new Coupon { Code = "SAVE10", Percentage = 10m, StartDate = now.AddDays(-7), EndDate = midEnd, UsageLimit = 2000, TimesUsed = 0, PerUserLimit = 3, IsActive = true, UserId = adminId },
+            new Coupon { Code = "FREESHIP", FreeShipping = true, StartDate = now.AddDays(-7), EndDate = longEnd, TimesUsed = 0, IsActive = true, UserId = adminId },
+            new Coupon { Code = "BF25FS", Percentage = 25m, FreeShipping = true, StartDate = now.AddDays(-3), EndDate = shortEnd, UsageLimit = 500, TimesUsed = 0, PerUserLimit = 2, IsActive = true, UserId = adminId },
+            new Coupon { Code = "VIP100", FixedAmount = 100m, StartDate = now.AddDays(-1), EndDate = longEnd, TimesUsed = 0, PerUserLimit = 5, IsActive = true, UserId = adminId }
         };
 
         context.Coupons.AddRange(coupons);
         await context.SaveChangesAsync();
     }
+
     private static async Task SeedFreeShippingMethodAsync(ApplicationDbContext context, decimal threshold, decimal baseCost)
     {
-        // Check if such a method already exists
-        var method = await context.ShippingMethods
-            .Include(m => m.Zones)
-            .FirstOrDefaultAsync(m =>
-                m.FreeShippingThreshold == threshold &&
-                m.CostType == ShippingCostType.Flat &&
-                m.Cost == baseCost);
+        // Load all zones as tracked entities (they were just created earlier in this seeding pass)
+        var zones = await context.ShippingZones.ToListAsync();
 
-        if (method is null)
-        {
-            method = new ShippingMethod
-            {
-                Cost = baseCost,
-                CostType = ShippingCostType.Flat,
-                EstimatedTime = "1-3 days",
-                IsDefault = true,              // make it the default pick
-                FreeShippingThreshold = threshold
-            };
-
-            // Attach to all zones
-            var zones = await context.ShippingZones.AsNoTracking().ToListAsync();
-            foreach (var z in zones)
-                method.Zones.Add(z);
-
-            context.ShippingMethods.Add(method);
-            await context.SaveChangesAsync();
-            return;
-        }
-
-        // Ensure attached to all zones (idempotent)
-        var allZones = await context.ShippingZones.AsNoTracking().Select(z => z.Id).ToListAsync();
-        var attached = method.Zones.Select(z => z.Id).ToHashSet();
-        var missingZoneIds = allZones.Where(id => !attached.Contains(id)).ToList();
-        if (missingZoneIds.Count > 0)
-        {
-            var missingZones = await context.ShippingZones.Where(z => missingZoneIds.Contains(z.Id)).ToListAsync();
-            foreach (var z in missingZones)
-                method.Zones.Add(z);
-
-            await context.SaveChangesAsync();
-        }
-    }
-
-    // Variant: seed the free-shipping method for specific cities only (by English city name)
-    private static async Task SeedFreeShippingMethodForCitiesAsync(ApplicationDbContext context, decimal threshold, decimal baseCost, IEnumerable<string> citiesEn)
-    {
-        var cityNames = citiesEn.Select(n => n.Trim()).Where(n => n.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (cityNames.Count == 0) return;
-
-        var targetZones = await context.ShippingZones
-            .Include(z => z.City)
-            .Where(z => z.CityId != null && z.City != null && cityNames.Contains(z.City.NameEn))
-            .ToListAsync();
-
-        if (targetZones.Count == 0) return;
-
+        // Try to find an existing free-shipping method with same characteristics
         var method = await context.ShippingMethods
             .Include(m => m.Zones)
             .FirstOrDefaultAsync(m =>
@@ -221,55 +145,59 @@ public static class AppDbContextSeed
                 IsDefault = true,
                 FreeShippingThreshold = threshold
             };
+
+            foreach (var z in zones)
+            {
+                // Avoid accidental duplicates
+                if (!method.Zones.Any(existing => existing.Id == z.Id))
+                    method.Zones.Add(z);
+            }
+
             context.ShippingMethods.Add(method);
+            await context.SaveChangesAsync();
+            return;
         }
 
-        // Attach to the specific zones only
-        var attachedIds = method.Zones.Select(z => z.Id).ToHashSet();
-        foreach (var z in targetZones)
-            if (!attachedIds.Contains(z.Id))
+        // Ensure the method is attached to all zones (idempotent)
+        foreach (var z in zones)
+        {
+            if (!method.Zones.Any(existing => existing.Id == z.Id))
                 method.Zones.Add(z);
+        }
 
         await context.SaveChangesAsync();
     }
 
-    private static async Task SeedCountriesAndCitiesAsync(ApplicationDbContext context, IWebHostEnvironment env) // CHANGED
+    private static async Task SeedCountriesAndCitiesAsync(ApplicationDbContext context, IWebHostEnvironment env)
     {
-        // Skip if already seeded
         if (await context.Countries.AnyAsync())
             return;
 
-        var path = Path.Combine(env.WebRootPath, "SeedData", "eg.locations.json"); // CHANGED
-        if (!File.Exists(path))
-            return;
+        var path = Path.Combine(env.WebRootPath, "SeedData", "eg.locations.json");
+        if (!File.Exists(path)) return;
 
         var json = await File.ReadAllTextAsync(path);
         var root = JsonSerializer.Deserialize<RootSeed>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        if (root?.Countries is null || root.Countries.Count == 0)
-            return;
+        if (root?.Countries is null || root.Countries.Count == 0) return;
 
         foreach (var countrySeed in root.Countries)
         {
-            // Create country
             var country = new Country { NameEn = countrySeed.NameEn, NameAr = countrySeed.NameAr };
             context.Countries.Add(country);
             await context.SaveChangesAsync();
 
-            // Cities
             foreach (var citySeed in countrySeed.Cities)
             {
                 var city = new City { NameEn = citySeed.NameEn, NameAr = citySeed.NameAr, CountryId = country.Id };
                 context.Cities.Add(city);
                 await context.SaveChangesAsync();
 
-                // ShippingZone per city (Country + City)
                 var zone = new ShippingZone { CountryId = country.Id, CityId = city.Id };
                 context.ShippingZones.Add(zone);
                 await context.SaveChangesAsync();
             }
         }
 
-        // Optional: create a free shipping method for Cairo
         var egypt = await context.Countries.FirstOrDefaultAsync(c => c.NameEn == "Egypt");
         if (egypt != null)
         {
@@ -277,11 +205,11 @@ public static class AppDbContextSeed
             if (cairo != null)
             {
                 var cairoZone = await context.ShippingZones.FirstAsync(z => z.CountryId == egypt.Id && z.CityId == cairo.Id);
-                var freeMethodExists = await context.ShippingMethods
+                var freeExists = await context.ShippingMethods
                     .Include(m => m.Zones)
                     .AnyAsync(m => m.Cost == 0 && m.FreeShippingThreshold == 0 && m.Zones.Any(z => z.Id == cairoZone.Id));
 
-                if (!freeMethodExists)
+                if (!freeExists)
                 {
                     var freeMethod = new ShippingMethod
                     {
@@ -298,64 +226,30 @@ public static class AppDbContextSeed
             }
         }
     }
-    private static async Task SeedAdminUserAddressesAsync(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
+
+    // CHANGED: Seed addresses for the Customer user instead of Admin
+    private static async Task SeedCustomerUserAddressesAsync(ApplicationDbContext context, Guid? customerId)
     {
-        // Ensure admin user exists
-        var admin = await userManager.FindByEmailAsync("admin@shop.com");
-        if (admin is null)
-            return;
+        if (customerId == null) return;
 
-        // Avoid reseeding if admin already has addresses
-        var existingCount = await context.UserAddresses.CountAsync(a => a.UserId == admin.Id);
-        if (existingCount >= 3) // already seeded set
-            return;
+        var existingCount = await context.UserAddresses.CountAsync(a => a.UserId == customerId);
+        if (existingCount >= 3) return;
 
-        // Require countries/cities
         var egypt = await context.Countries.FirstOrDefaultAsync(c => c.NameEn == "Egypt");
         if (egypt is null) return;
 
-        // Pick some cities (fallback to any if specific ones not found)
         var cairo = await context.Cities.FirstOrDefaultAsync(c => c.NameEn == "Cairo" && c.CountryId == egypt.Id)
                     ?? await context.Cities.FirstOrDefaultAsync(c => c.CountryId == egypt.Id);
+        var alex = await context.Cities.FirstOrDefaultAsync(c => c.NameEn == "Alexandria" && c.CountryId == egypt.Id) ?? cairo;
+        var giza = await context.Cities.FirstOrDefaultAsync(c => c.NameEn == "Giza" && c.CountryId == egypt.Id) ?? cairo;
 
-        var alex = await context.Cities.FirstOrDefaultAsync(c => c.NameEn == "Alexandria" && c.CountryId == egypt.Id)
-                   ?? cairo;
-
-        var giza = await context.Cities.FirstOrDefaultAsync(c => c.NameEn == "Giza" && c.CountryId == egypt.Id)
-                   ?? cairo;
+        if (cairo is null || alex is null || giza is null) return;
 
         var addresses = new List<UserAddress>
         {
-            new UserAddress
-            {
-                UserId = admin.Id,
-                FullName = "Admin Home",
-                CityId = cairo!.Id,
-                Street = "123 Nile Corniche",
-                MobileNumber = "+201001112223",
-                HouseNo = "Bldg 5",
-                IsDefault = true
-            },
-            new UserAddress
-            {
-                UserId = admin.Id,
-                FullName = "Admin Office",
-                CityId = alex!.Id,
-                Street = "45 Port Gate Street",
-                MobileNumber = "+201001112224",
-                HouseNo = "Suite 12A",
-                IsDefault = false
-            },
-            new UserAddress
-            {
-                UserId = admin.Id,
-                FullName = "Admin Warehouse",
-                CityId = giza!.Id,
-                Street = "Industrial Zone 7",
-                MobileNumber = "+201001112225",
-                HouseNo = "Warehouse 3",
-                IsDefault = false
-            }
+            new UserAddress { UserId = customerId, FullName = "Customer Home", CityId = cairo.Id, Street = "123 Nile Corniche", MobileNumber = "+201001112223", HouseNo = "Bldg 5", IsDefault = true },
+            new UserAddress { UserId = customerId, FullName = "Customer Work", CityId = alex.Id, Street = "45 Port Gate Street", MobileNumber = "+201001112224", HouseNo = "Suite 12A", IsDefault = false },
+            new UserAddress { UserId = customerId, FullName = "Customer Warehouse", CityId = giza.Id, Street = "Industrial Zone 7", MobileNumber = "+201001112225", HouseNo = "Warehouse 3", IsDefault = false }
         };
 
         context.UserAddresses.AddRange(addresses);
@@ -380,7 +274,6 @@ public static class AppDbContextSeed
 
     private static async Task SeedUsersAsync(UserManager<ApplicationUser> userManager)
     {
-        // SuperAdmin
         var superAdminEmail = "superadmin@shop.com";
         var superAdmin = await userManager.FindByEmailAsync(superAdminEmail);
         if (superAdmin is null)
@@ -393,14 +286,10 @@ public static class AppDbContextSeed
                 FullName = "Super Administrator",
                 IsActive = true
             };
-            var createResult = await userManager.CreateAsync(superAdmin, "SuperAdmin@123");
-            if (createResult.Succeeded)
-            {
+            if ((await userManager.CreateAsync(superAdmin, "SuperAdmin@123")).Succeeded)
                 await userManager.AddToRolesAsync(superAdmin, new[] { "SuperAdmin", "Admin" });
-            }
         }
 
-        // Admin
         var adminEmail = "admin@shop.com";
         var admin = await userManager.FindByEmailAsync(adminEmail);
         if (admin is null)
@@ -413,14 +302,10 @@ public static class AppDbContextSeed
                 FullName = "System Admin",
                 IsActive = true
             };
-            var createResult = await userManager.CreateAsync(admin, "Admin@123");
-            if (createResult.Succeeded)
-            {
+            if ((await userManager.CreateAsync(admin, "Admin@123")).Succeeded)
                 await userManager.AddToRoleAsync(admin, "Admin");
-            }
         }
 
-        // Customer
         var customerEmail = "customer@shop.com";
         var customer = await userManager.FindByEmailAsync(customerEmail);
         if (customer is null)
@@ -433,11 +318,8 @@ public static class AppDbContextSeed
                 FullName = "Demo Customer",
                 IsActive = true
             };
-            var createResult = await userManager.CreateAsync(customer, "Customer@123");
-            if (createResult.Succeeded)
-            {
+            if ((await userManager.CreateAsync(customer, "Customer@123")).Succeeded)
                 await userManager.AddToRoleAsync(customer, "Customer");
-            }
         }
     }
 
@@ -450,17 +332,14 @@ public static class AppDbContextSeed
                 new Category { NameEn = "Fashion", NameAr = "أزياء" },
                 new Category { NameEn = "Home & Kitchen", NameAr = "منزل ومطبخ" }
             );
-
             await context.SaveChangesAsync();
         }
     }
 
     private static async Task SeedFashionCatalogAsync(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
     {
-        // Ensure base attributes exist: Color, Size (+ allowed values)
         var colorAttr = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Color")
                         ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Color" })).Entity;
-
         var sizeAttr = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Size")
                        ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Size" })).Entity;
 
@@ -472,44 +351,40 @@ public static class AppDbContextSeed
         if (!await context.FeaturedProducts.AnyAsync() && await context.Products.AnyAsync())
         {
             var prod = await context.Products.FirstAsync();
-            context.FeaturedProducts.Add(new FeaturedProduct
-            {
-                ProductId = prod.Id,
-                DisplayOrder = 1
-            });
-
+            context.FeaturedProducts.Add(new FeaturedProduct { ProductId = prod.Id, DisplayOrder = 1 });
             await context.SaveChangesAsync();
         }
     }
 
-    private static async Task SeedProductAttributesForTShirtsAsync(ApplicationDbContext context)
+    private static async Task SeedProductAttributesForTShirtsAsync(ApplicationDbContext context, Guid? adminId)
     {
-        // Ensure base attributes exist
         var colorAttr = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Color")
                         ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Color" })).Entity;
-
         var sizeAttr = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Size")
                        ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Size" })).Entity;
-
         var materialAttr = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Material")
                            ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Material" })).Entity;
 
         await context.SaveChangesAsync();
 
-        // Ensure allowed values exist
         var colorValues = await EnsureAttributeValuesAsync(context, colorAttr, "White", "Black", "Red", "Blue");
         var sizeValues = await EnsureAttributeValuesAsync(context, sizeAttr, "S", "M", "L", "XL");
         var materialValues = await EnsureAttributeValuesAsync(context, materialAttr, "Cotton", "Polyester");
 
-        // Find the T-Shirt product by SKU
         var tshirt = await context.Products.FirstOrDefaultAsync(p => p.SKU == "TS-1");
         if (tshirt is null) return;
+
+        // Ensure product has admin owner
+        if (tshirt.UserId == null && adminId != null)
+        {
+            tshirt.UserId = adminId;
+            await context.SaveChangesAsync();
+        }
 
         var existingMappings = await context.ProductAttributeMappings
             .Where(m => m.ProductId == tshirt.Id)
             .ToListAsync();
 
-        // Helper to avoid duplicates
         void EnsureMapping(Guid productId, Guid attributeId, Guid? valueId)
         {
             var found = existingMappings.FirstOrDefault(m =>
@@ -559,7 +434,6 @@ public static class AppDbContextSeed
                     ProductAttributeId = attribute.Id,
                     Value = val
                 })).Entity;
-
                 ensured.Add(entity);
             }
             else
@@ -572,34 +446,40 @@ public static class AppDbContextSeed
         return ensured;
     }
 
-    private static async Task SeedProductsAsync(ApplicationDbContext context)
+    private static async Task SeedProductsAsync(ApplicationDbContext context, Guid? adminId)
     {
-        // Seed only Fashion products: 15 items, with Color/Size attributes, reviews, and AverageRating
         var fashion = await context.Categories.FirstOrDefaultAsync(c => c.NameEn == "Fashion");
         if (fashion is null) return;
 
-        // Ensure attributes exist
         var colorAttr = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Color")
                         ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Color" })).Entity;
-
         var sizeAttr = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Size")
                        ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Size" })).Entity;
 
         await context.SaveChangesAsync();
 
-        // Allowed values
         var colorValues = await EnsureAttributeValuesAsync(context, colorAttr, "White", "Black", "Red", "Blue", "Green");
         var sizeValues = await EnsureAttributeValuesAsync(context, sizeAttr, "XS", "S", "M", "L", "XL");
 
-        // If we already have 15 fashion products, stop
         var existingFashion = await context.Products
             .Where(p => p.CategoryId == fashion.Id)
             .ToListAsync();
 
+        // Backfill UserId for existing products
+        if (adminId != null)
+        {
+            var withoutUser = existingFashion.Where(p => p.UserId == null).ToList();
+            if (withoutUser.Count > 0)
+            {
+                foreach (var p in withoutUser)
+                    p.UserId = adminId;
+                await context.SaveChangesAsync();
+            }
+        }
+
         var toCreate = 20 - existingFashion.Count;
         if (toCreate <= 0) return;
 
-        // Seed products
         var rnd = new Random(4242);
         string[] brands = { "Zara", "H&M", "Nike", "Adidas", "Uniqlo", "Levi's", "Gap" };
 
@@ -619,8 +499,9 @@ public static class AppDbContextSeed
                 Price = price,
                 StockQuantity = rnd.Next(20, 200),
                 Brand = brand,
-                Color = colorValues[idx % colorValues.Count].Value, // snapshot main color
-                AllowBackorder = rnd.Next(0, 3) == 0 // ~33%
+                Color = colorValues[idx % colorValues.Count].Value,
+                AllowBackorder = rnd.Next(0, 3) == 0,
+                UserId = adminId // CHANGED
             };
 
             newProducts.Add(p);
@@ -629,11 +510,9 @@ public static class AppDbContextSeed
         await context.Products.AddRangeAsync(newProducts);
         await context.SaveChangesAsync();
 
-        // Map attributes: all sizes + 3 rotating colors per product
         var mappings = new List<ProductAttributeMapping>();
         foreach (var p in newProducts)
         {
-            // All sizes
             foreach (var s in sizeValues)
             {
                 mappings.Add(new ProductAttributeMapping
@@ -644,7 +523,6 @@ public static class AppDbContextSeed
                 });
             }
 
-            // 3 colors (distinct, rotating)
             var colorIdxs = Enumerable.Range(0, 3)
                 .Select(k => (int)(((p.Id.GetHashCode() + k) & 0x7FFFFFFF) % colorValues.Count))
                 .Distinct();
@@ -664,7 +542,6 @@ public static class AppDbContextSeed
         await context.ProductAttributeMappings.AddRangeAsync(mappings);
         await context.SaveChangesAsync();
 
-        // Seed reviews (approved) from first 3 users and set AverageRating
         var reviewers = await context.Users.Take(3).ToListAsync();
         if (reviewers.Count > 0)
         {
@@ -678,8 +555,8 @@ public static class AppDbContextSeed
                     reviews.Add(new ProductReview
                     {
                         ProductId = p.Id,
-                        UserId = user.Id.ToString(), // keep string FK copy
-                        User = user,                  // set real FK
+                        UserId = user.Id.ToString(),
+                        User = user,
                         Rating = ratings[i],
                         Comment = $"Seed review {i + 1} for {p.NameEn}",
                         IsApproved = true
@@ -694,7 +571,6 @@ public static class AppDbContextSeed
             }
         }
 
-        // Compute AverageRating for each newly created product
         foreach (var p in newProducts)
         {
             var avg = await context.ProductReviews
@@ -707,24 +583,9 @@ public static class AppDbContextSeed
         await context.SaveChangesAsync();
     }
 
-    #region  JSON DTOs
-    private sealed class RootSeed
-    {
-        public List<CountrySeed> Countries { get; set; } = new();
-    }
-
-    private sealed class CountrySeed
-    {
-        public string NameEn { get; set; } = string.Empty;
-        public string NameAr { get; set; } = string.Empty;
-        public List<CitySeed> Cities { get; set; } = new();
-    }
-
-    private sealed class CitySeed
-    {
-        public string NameEn { get; set; } = string.Empty;
-        public string NameAr { get; set; } = string.Empty;
-    }
+    #region JSON DTOs
+    private sealed class RootSeed { public List<CountrySeed> Countries { get; set; } = new(); }
+    private sealed class CountrySeed { public string NameEn { get; set; } = string.Empty; public string NameAr { get; set; } = string.Empty; public List<CitySeed> Cities { get; set; } = new(); }
+    private sealed class CitySeed { public string NameEn { get; set; } = string.Empty; public string NameAr { get; set; } = string.Empty; }
     #endregion
 }
-

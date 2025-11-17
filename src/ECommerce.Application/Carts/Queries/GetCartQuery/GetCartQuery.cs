@@ -24,7 +24,49 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
         var userId = CurrentUser.Id;
         var guestId = CurrentUser.GuestId;
 
-        var cartEntity = await _context.Carts
+        var cartEntity = await LoadCartAsync(userId, guestId, cancellationToken);
+        if (cartEntity is null)
+            return Result<CheckoutSummaryDto>.Success(CreateEmptySummary());
+
+        // Map and enrich cart dto
+        var cartDto = await BuildCartDtoAsync(cartEntity, cancellationToken);
+
+        var subTotal = cartDto.Total;
+        var productIds = cartEntity.Items.Select(i => i.ProductId).Distinct().ToList();
+        var now = DateTimeOffset.UtcNow;
+
+        var activeSettings = await LoadActiveProductSettingsAsync(productIds, now, cancellationToken);
+        var itemDiscount = ComputeItemDiscount(cartEntity, activeSettings);
+
+        var shippingUserId = GetShippingUserId(cartEntity);
+        var methodSummary = await ResolveShippingAsync(shippingUserId, subTotal, cancellationToken);
+        var shippingDiscount = (methodSummary?.FreeShippingApplied ?? false)
+            ? (methodSummary?.CalculatedCostWithoutFree ?? 0m)
+            : 0m;
+
+        var discountTotal = itemDiscount + shippingDiscount;
+
+        var coupons = await GetValidCouponsForCurrentUserAsync(
+            cartEntity.Items.Select(i => i.Product).FirstOrDefault()!,
+            userId,
+            cancellationToken);
+
+        var summary = BuildSummary(
+            cartDto,
+            subTotal,
+            itemDiscount,
+            shippingDiscount,
+            discountTotal,
+            methodSummary,
+            coupons);
+
+        return Result<CheckoutSummaryDto>.Success(summary);
+    }
+
+    // Data loading
+    private async Task<Cart?> LoadCartAsync(Guid? userId, string? guestId, CancellationToken ct)
+    {
+        return await _context.Carts
             .AsNoTracking()
             .Where(c =>
                 (userId != null && c.UserId == userId) ||
@@ -50,23 +92,14 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
             .Include(c => c.Items)
                 .ThenInclude(i => i.Attributes)
                     .ThenInclude(a => a.ProductAttributeValue)
-            .FirstOrDefaultAsync(cancellationToken);
+            .FirstOrDefaultAsync(ct);
+    }
 
-        if (cartEntity is null)
-        {
-            return Result<CheckoutSummaryDto>.Success(new CheckoutSummaryDto
-            {
-                Cart = new CartDto(),
-                SubTotal = 0,
-                ShippingTotal = 0,
-                Total = 0,
-                Coupons = new List<CouponDto>()
-            });
-        }
-
+    private async Task<CartDto> BuildCartDtoAsync(Cart cartEntity, CancellationToken ct)
+    {
         var cartDto = cartEntity.Adapt<CartDto>();
 
-        // Populate selected attributes (line-level) if not mapped automatically
+        // Fill line-level selected attributes (what the user chose for this cart item)
         foreach (var itemEntity in cartEntity.Items)
         {
             var dto = cartDto.Items.First(i => i.Id == itemEntity.Id);
@@ -81,46 +114,60 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
                 .ToList();
         }
 
-        // Load full product attribute mappings for each product (available attributes/values)
-        var productIds = cartEntity.Items
-            .Select(i => i.ProductId)
-            .Distinct()
-            .ToList();
+        // Load all product attribute mappings (available options) once
+        var productIds = cartEntity.Items.Select(i => i.ProductId).Distinct().ToList();
 
-        var mappings = await _context.ProductAttributeMappings
+        var productMappings = await _context.ProductAttributeMappings
             .AsNoTracking()
             .Where(m => productIds.Contains(m.ProductId))
             .Include(m => m.ProductAttribute)
             .Include(m => m.ProductAttributeValue)
-            .Select(m => new CartItemAttributeDto
+            .Select(m => new
             {
-                AttributeId = m.ProductAttributeId,
-                AttributeName = m.ProductAttribute.Name,
-                ValueId = m.ProductAttributeValueId,
-                Value = m.ProductAttributeValue != null ? m.ProductAttributeValue.Value : null
+                m.ProductId,
+                Attr = new CartItemAttributeDto
+                {
+                    AttributeId = m.ProductAttributeId,
+                    AttributeName = m.ProductAttribute.Name,
+                    ValueId = m.ProductAttributeValueId,
+                    Value = m.ProductAttributeValue != null ? m.ProductAttributeValue.Value : null
+                }
             })
-            .ToListAsync(cancellationToken);
+            .ToListAsync(ct);
 
-        // Assign mappings to each cart item
+        var byProduct = productMappings
+            .GroupBy(x => x.ProductId)
+            .ToDictionary(g => g.Key, g => g.Select(v => v.Attr).ToList());
+
+        // Assign available attribute options per product (without overwriting selected line attributes)
         foreach (var item in cartDto.Items)
         {
-            item.SelectedAttributes = mappings
-                .Where(m => m != null && cartEntity.Items.Any(ci => ci.Id == item.Id && ci.ProductId == item.ProductId))
-                .ToList();
+            if (byProduct.TryGetValue(item.ProductId, out var attrs))
+                item.ProductAttributes = attrs;
+            else
+                item.ProductAttributes = new List<CartItemAttributeDto>();
         }
 
-        var subTotal = cartDto.Total;
-        var discount = 0m;
+        return cartDto;
+    }
 
-        var now = DateTimeOffset.UtcNow;
-        var activeSettings = await _context.ProductSettings
+    private async Task<List<ProductSetting>> LoadActiveProductSettingsAsync(
+        List<Guid> productIds,
+        DateTimeOffset now,
+        CancellationToken ct)
+    {
+        return await _context.ProductSettings
             .Include(ps => ps.Products)
             .Where(ps => ps.IsActive
                          && ps.StartDate <= now
                          && ps.EndDate >= now
                          && (ps.AppliesToAllProducts || ps.Products.Any(p => productIds.Contains(p.Id))))
-            .ToListAsync(cancellationToken);
+            .ToListAsync(ct);
+    }
 
+    // Calculations
+    private decimal ComputeItemDiscount(Cart cartEntity, List<ProductSetting> activeSettings)
+    {
         decimal itemDiscount = 0m;
 
         foreach (var item in cartEntity.Items)
@@ -146,6 +193,11 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
             itemDiscount += productDiscount;
         }
 
+        return itemDiscount;
+    }
+
+    private Guid? GetShippingUserId(Cart cartEntity)
+    {
         var sellerIds = cartEntity.Items
             .Where(i => i.Product != null)
             .Select(i =>
@@ -159,36 +211,41 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
             .Distinct()
             .ToList();
 
-        Guid? shippingUserId = sellerIds.FirstOrDefault();
+        return sellerIds.FirstOrDefault();
+    }
 
-        var methodSummary = await ResolveShippingAsync(shippingUserId, subTotal, cancellationToken);
-        var shippingDiscount = (methodSummary?.FreeShippingApplied ?? false)
-            ? (methodSummary?.CalculatedCostWithoutFree ?? 0m)
-            : 0m;
+    private static CheckoutSummaryDto CreateEmptySummary() => new()
+    {
+        Cart = new CartDto(),
+        SubTotal = 0,
+        ShippingTotal = 0,
+        Total = 0,
+        Coupons = new List<CouponDto>()
+    };
 
-        discount = itemDiscount + shippingDiscount;
-
-        var coupons = await GetValidCouponsForCurrentUserAsync(
-            cartEntity.Items.Select(i => i.Product).FirstOrDefault()!,
-            userId,
-            cancellationToken);
-
-        var summary = new CheckoutSummaryDto
+    private static CheckoutSummaryDto BuildSummary(
+        CartDto cartDto,
+        decimal subTotal,
+        decimal itemDiscount,
+        decimal shippingDiscount,
+        decimal discountTotal,
+        ShippingMethodSummaryDto? methodSummary,
+        List<CouponDto> coupons)
+    {
+        return new CheckoutSummaryDto
         {
             Cart = cartDto,
             SubTotal = subTotal,
             ItemDiscount = itemDiscount,
             ShippingDiscount = shippingDiscount,
-            DiscountTotal = discount,
+            DiscountTotal = discountTotal,
             ShippingTotal = methodSummary?.EffectiveCost ?? 0m,
-            Total = subTotal - discount + (methodSummary?.EffectiveCost ?? 0m),
+            Total = subTotal - discountTotal + (methodSummary?.EffectiveCost ?? 0m),
             ShippingMethodId = methodSummary?.Id,
             FreeShippingApplied = methodSummary?.FreeShippingApplied ?? false,
             SelectedShippingMethod = methodSummary,
             Coupons = coupons
         };
-
-        return Result<CheckoutSummaryDto>.Success(summary);
     }
 
     private async Task<List<CouponDto>> GetValidCouponsForCurrentUserAsync(Product Product, Guid? userId, CancellationToken ct)
@@ -260,21 +317,15 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
 
         var freeApplied = method.FreeShippingThreshold.HasValue && subTotal >= method.FreeShippingThreshold.Value;
 
-        decimal effectiveCost;
-        if (freeApplied)
-        {
-            effectiveCost = 0m;
-        }
-        else
-        {
-            effectiveCost = method.CostType switch
+        decimal effectiveCost = freeApplied
+            ? 0m
+            : method.CostType switch
             {
                 ShippingCostType.Flat => method.Cost,
                 ShippingCostType.ByTotal => Math.Round(subTotal * (method.Cost / 100m), 2, MidpointRounding.AwayFromZero),
                 ShippingCostType.ByWeight => method.Cost,
                 _ => method.Cost
             };
-        }
 
         return new ShippingMethodSummaryDto
         {
