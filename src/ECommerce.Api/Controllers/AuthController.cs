@@ -1,7 +1,9 @@
 using ECommerce.Application.Common;
 using ECommerce.Application.Users.Commands;
+using ECommerce.Application.Users.Commands.Tokens;
 using ECommerce.Application.Users.Dtos;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ECommerce.Api.Controllers;
@@ -26,10 +28,28 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<Result<AuthResponse>>> Login(LoginRequest request)
+    public async Task<ActionResult<Result<TokenPairResponse>>> Login(LoginRequest request)
     {
         var result = await _mediator.Send(new LoginUserCommand(request));
         if (!result.Succeeded) return Unauthorized(result);
         return Ok(result);
+    }
+
+    // POST: api/auth/refresh
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Refresh([FromBody] RefreshTokenCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.Succeeded ? Ok(result) : BadRequest(result);
+    }
+
+    // POST: api/auth/revoke
+    [HttpPost("revoke")]
+    [Authorize]
+    public async Task<IActionResult> Revoke([FromBody] RevokeRefreshTokenCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 }

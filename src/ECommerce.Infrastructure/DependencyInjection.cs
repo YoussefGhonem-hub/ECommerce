@@ -33,10 +33,11 @@ public static class DependencyInjection
         .AddSignInManager()
         .AddDefaultTokenProviders();
 
-        services.AddHttpContextAccessor();
-
-        services.Configure<JwtSettings>(configuration.GetSection(nameof(JwtSettings)));
+        services.Configure<JwtSettings>(configuration.GetSection("JwtSettings"));
         services.AddScoped<ITokenService, TokenService>();
+        services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+
+        services.AddHttpContextAccessor();
 
         // File storage
         services.AddScoped<IFileStorage, LocalFileStorage>();

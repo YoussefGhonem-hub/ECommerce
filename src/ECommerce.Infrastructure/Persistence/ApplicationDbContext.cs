@@ -1,5 +1,4 @@
 using ECommerce.Domain.Entities;
-using ECommerce.Infrastructure.Extensions;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
@@ -8,9 +7,7 @@ namespace ECommerce.Infrastructure.Persistence;
 
 public class ApplicationDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>
 {
-    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options)
-    {
-    }
+    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options) { }
 
     public DbSet<Country> Countries => Set<Country>();
     public DbSet<City> Cities => Set<City>();
@@ -37,6 +34,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     public DbSet<Banner> Banners => Set<Banner>();
     public DbSet<FeaturedProduct> FeaturedProducts => Set<FeaturedProduct>();
 
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         => base.SaveChangesAsync(cancellationToken);
 
@@ -44,6 +43,5 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
-        modelBuilder.GetOnlyNotDeletedEntities();
     }
 }

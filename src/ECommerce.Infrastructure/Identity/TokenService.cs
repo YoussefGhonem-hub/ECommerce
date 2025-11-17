@@ -11,47 +11,37 @@ namespace ECommerce.Infrastructure.Identity;
 public interface ITokenService
 {
     string GenerateToken(ApplicationUser user, IList<string> roles);
+    (string AccessToken, DateTime ExpiresAtUtc) GenerateAccessToken(ApplicationUser user, IList<string> roles);
 }
 
 public class TokenService : ITokenService
 {
     private readonly JwtSettings _settings;
 
-    public TokenService(IOptions<JwtSettings> settings)
-    {
-        _settings = settings.Value;
-    }
+    public TokenService(IOptions<JwtSettings> settings) => _settings = settings.Value;
 
-    public string GenerateToken(ApplicationUser user, IList<string> roles)
+    public (string AccessToken, DateTime ExpiresAtUtc) GenerateAccessToken(ApplicationUser user, IList<string> roles)
     {
+        var now = DateTime.UtcNow;
+        var expires = now.AddMinutes(_settings.DurationInMinutes);
+
         var claims = new List<Claim>
         {
-            // Subject and identifiers
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim("Id", user.Id.ToString()),
-
-            // Name / email
             new Claim(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
             new Claim(ClaimTypes.Email, user.Email ?? string.Empty),
             new Claim(JwtRegisteredClaimNames.Name, user.FullName ?? string.Empty),
             new Claim(ClaimTypes.Name, user.FullName ?? string.Empty),
             new Claim("preferred_username", user.UserName ?? string.Empty),
-
-            // Token id
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N"))
         };
 
-        // Per-role claims (used by ASP.NET Core for authorization)
-        if (roles != null)
-        {
-            foreach (var role in roles)
-                claims.Add(new Claim(ClaimTypes.Role, role));
-        }
+        foreach (var role in roles ?? Array.Empty<string>())
+            claims.Add(new Claim(ClaimTypes.Role, role));
 
-        // Also add roles array claim for clients that consume a single "roles" claim
-        var rolesArray = (roles ?? Array.Empty<string>()).Where(r => !string.IsNullOrWhiteSpace(r)).ToArray();
-        claims.Add(new Claim("roles", JsonSerializer.Serialize(rolesArray)));
+        claims.Add(new Claim("roles", JsonSerializer.Serialize(roles ?? Array.Empty<string>())));
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Key));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -60,10 +50,13 @@ public class TokenService : ITokenService
             issuer: _settings.Issuer,
             audience: _settings.Audience,
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(_settings.DurationInMinutes),
-            signingCredentials: creds
-        );
+            notBefore: now,
+            expires: expires,
+            signingCredentials: creds);
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return (new JwtSecurityTokenHandler().WriteToken(token), expires);
     }
+
+    public string GenerateToken(ApplicationUser user, IList<string> roles)
+        => GenerateAccessToken(user, roles).AccessToken;
 }
