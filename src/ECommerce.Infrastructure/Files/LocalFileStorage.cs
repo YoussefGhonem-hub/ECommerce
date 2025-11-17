@@ -52,4 +52,36 @@ public class LocalFileStorage : IFileStorage
         foreach (var path in relativePaths)
             await DeleteAsync(path, ct);
     }
+    public async Task<string> SaveUserAvatarAsync(Guid userId, Stream stream, string fileName, string contentType, CancellationToken ct = default)
+    {
+        var uploadsRoot = Path.Combine(_env.WebRootPath, "uploads", "users", userId.ToString("N"));
+        Directory.CreateDirectory(uploadsRoot);
+
+        var ext = Path.GetExtension(fileName);
+        if (string.IsNullOrWhiteSpace(ext))
+            ext = GuessExtension(contentType);
+
+        var finalName = $"avatar{ext}".ToLowerInvariant();
+        var fullPath = Path.Combine(uploadsRoot, finalName);
+
+        using (var fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            await stream.CopyToAsync(fs, ct);
+        }
+
+        var relative = $"/uploads/users/{userId.ToString("N")}/{finalName}";
+        return relative;
+    }
+
+    private static string GuessExtension(string contentType)
+    {
+        return contentType?.ToLowerInvariant() switch
+        {
+            "image/png" => ".png",
+            "image/jpeg" or "image/jpg" => ".jpg",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            _ => ".jpg"
+        };
+    }
 }
