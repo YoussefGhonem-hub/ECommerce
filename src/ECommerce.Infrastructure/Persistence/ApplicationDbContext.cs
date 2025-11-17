@@ -45,23 +45,5 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
         modelBuilder.GetOnlyNotDeletedEntities();
-
-        // Product -> ProductImages
-        modelBuilder.Entity<ProductImage>()
-            .HasOne(pi => pi.Product)
-            .WithMany(p => p.Images)
-            .HasForeignKey(pi => pi.ProductId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        // Ensure only one IsMain per product using filtered unique index (SQL Server)
-        modelBuilder.Entity<ProductImage>()
-            .HasIndex(pi => new { pi.ProductId, pi.IsMain })
-            .HasFilter("[IsMain] = 1")
-            .IsUnique();
-
-        modelBuilder.Entity<ProductImage>()
-            .Property(pi => pi.Path)
-            .IsRequired()
-            .HasMaxLength(512);
     }
 }

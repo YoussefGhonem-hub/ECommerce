@@ -1,6 +1,8 @@
 using ECommerce.Application.Users.Commands.ChangePassword;
 using ECommerce.Application.Users.Commands.UpdateAccountSettings;
 using ECommerce.Application.Users.Queries.GetMyProfile;
+using ECommerce.Application.Users.SocialProfiles.Commands;
+using ECommerce.Application.Users.SocialProfiles.Queries;
 using ECommerce.Domain.Entities;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -43,6 +45,22 @@ public class AccountController : ControllerBase
     // PUT api/account/password
     [HttpPost("password")]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.Succeeded ? Ok(result) : BadRequest(result);
+    }
+
+    // GET api/account/social-profiles
+    [HttpGet("social-profiles")]
+    public async Task<IActionResult> GetMySocialProfiles([FromQuery] GetMySocialProfilesQuery query)
+    {
+        var result = await _mediator.Send(query);
+        return result.Succeeded ? Ok(result) : Unauthorized(result);
+    }
+
+    // PUT api/account/social-profiles
+    [HttpPost("social-profiles")]
+    public async Task<IActionResult> UpdateMySocialProfiles([FromBody] UpdateMySocialProfilesCommand command)
     {
         var result = await _mediator.Send(command);
         return result.Succeeded ? Ok(result) : BadRequest(result);
