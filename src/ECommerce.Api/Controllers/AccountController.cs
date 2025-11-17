@@ -27,6 +27,7 @@ public class AccountController : ControllerBase
 
     // GET api/account/me
     [HttpGet("profile")]
+    [AllowAnonymous]
     public async Task<IActionResult> Me([FromQuery] GetMyProfileQuery query)
     {
         var result = await _mediator.Send(query);

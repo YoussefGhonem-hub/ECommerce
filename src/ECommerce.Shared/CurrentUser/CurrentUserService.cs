@@ -127,28 +127,40 @@ public static class CurrentUser
         var principal = HttpContextAccessor!.HttpContext!.User;
         var roles = new List<string>();
 
-        // Standard role claims (added by TokenService)
-        roles.AddRange(principal.Claims.Where(c => c.Type == RoleClaim).Select(c => c.Value));
+        // Role claims on principal
+        roles.AddRange(principal.Claims
+            .Where(c => c.Type == RoleClaim || c.Type == "role")
+            .Select(c => c.Value));
 
-        // Optional roles array claim (added by TokenService)
+        // Optional roles array claim (JSON)
         var rolesJson = principal.Claims.FirstOrDefault(c => c.Type == RolesArrayClaim)?.Value;
         if (!string.IsNullOrEmpty(rolesJson))
         {
-            var arr = rolesJson.Deserialized<List<string>>();
-            if (arr != null) roles.AddRange(arr);
+            try
+            {
+                var arr = rolesJson.Deserialized<List<string>>();
+                if (arr is { Count: > 0 }) roles.AddRange(arr);
+            }
+            catch { /* ignore malformed */ }
         }
 
-        // Fallback to raw token for any additional roles (if principal missing some)
+        // Fallback to raw token for any additional roles
         var jwt = GetRawToken();
         if (jwt != null)
         {
-            roles.AddRange(jwt.Claims.Where(c => c.Type == RoleClaim).Select(c => c.Value));
+            roles.AddRange(jwt.Claims
+                .Where(c => c.Type == RoleClaim || c.Type == "role")
+                .Select(c => c.Value));
 
             var jwtRolesJson = jwt.Claims.FirstOrDefault(c => c.Type == RolesArrayClaim)?.Value;
             if (!string.IsNullOrEmpty(jwtRolesJson))
             {
-                var arr = jwtRolesJson.Deserialized<List<string>>();
-                if (arr != null) roles.AddRange(arr);
+                try
+                {
+                    var arr = jwtRolesJson.Deserialized<List<string>>();
+                    if (arr is { Count: > 0 }) roles.AddRange(arr);
+                }
+                catch { /* ignore malformed */ }
             }
         }
 
