@@ -31,6 +31,8 @@ public static class AppDbContextSeed
         await SeedProductSettingsAsync(context, adminId);
         await SeedCountriesAndCitiesAsync(context, env);
         await SeedFreeShippingMethodAsync(context, threshold: 1000m, baseCost: 50m);
+        await SeedFaqCategoriesAsync(context); // NEW - Seed FAQ categories before FAQs
+        await SeedFaqsAsync(context, adminId); // NEW
     }
 
     private static async Task<Guid?> GetFirstUserIdInRoleAsync(UserManager<ApplicationUser> userManager, string role)
@@ -580,6 +582,134 @@ public static class AppDbContextSeed
             p.AverageRating = Math.Round(avg, 2);
         }
 
+        await context.SaveChangesAsync();
+    }
+
+    // NEW: Seed FAQ categories
+    private static async Task SeedFaqCategoriesAsync(ApplicationDbContext context)
+    {
+        if (await context.FaqCategories.AnyAsync()) return;
+
+        var categories = new List<FaqCategory>
+        {
+            new() { NameEn = "Delivery", NameAr = "التسليم", DisplayOrder = 1, IsActive = true },
+            new() { NameEn = "Cancellation & Return My Orders", NameAr = "إلغاء وإرجاع طلباتي", DisplayOrder = 2, IsActive = true },
+            new() { NameEn = "Product & Services", NameAr = "المنتج والخدمات", DisplayOrder = 3, IsActive = true }
+        };
+
+        context.FaqCategories.AddRange(categories);
+        await context.SaveChangesAsync();
+    }
+
+    // Replace previous SeedFaqsAsync with this version (assumes categories exist).
+    private static async Task SeedFaqsAsync(ApplicationDbContext context, Guid? adminId)
+    {
+        if (await context.Faqs.AnyAsync()) return;
+
+        var delivery = await context.FaqCategories.FirstAsync(c => c.NameEn == "Delivery");
+        var returns = await context.FaqCategories.FirstAsync(c => c.NameEn == "Cancellation & Return My Orders");
+        var product = await context.FaqCategories.FirstAsync(c => c.NameEn == "Product & Services");
+
+        var faqs = new List<Faq>
+        {
+            // Delivery
+            new()
+            {
+                FaqCategoryId = delivery.Id,
+                QuestionEn = "How long does delivery take?",
+                QuestionAr = "كم يستغرق وقت التسليم؟",
+                AnswerEn = "Standard delivery typically takes 1-3 days as shown in the shipping method. Some cities (e.g., Cairo) may qualify for faster or free delivery.",
+                AnswerAr = "عادةً ما يستغرق التسليم القياسي من 1 إلى 3 أيام كما هو موضح في طريقة الشحن. بعض المدن (مثل القاهرة) قد تحصل على توصيل أسرع أو مجاني.",
+                DisplayOrder = 1
+            },
+            new()
+            {
+                FaqCategoryId = delivery.Id,
+                QuestionEn = "Do you offer free shipping?",
+                QuestionAr = "هل تقدمون شحنًا مجانيًا؟",
+                AnswerEn = "Yes. Orders reaching the free shipping threshold or in special zones (like Cairo) can qualify for free shipping.",
+                AnswerAr = "نعم. الطلبات التي تصل إلى حد الشحن المجاني أو في المناطق الخاصة (مثل القاهرة) يمكن أن تحصل على الشحن المجاني.",
+                DisplayOrder = 2
+            },
+            new()
+            {
+                FaqCategoryId = delivery.Id,
+                QuestionEn = "How can I track my order?",
+                QuestionAr = "كيف يمكنني تتبع طلبي؟",
+                AnswerEn = "Track your order from the Orders section in your account using the order or tracking number when available.",
+                AnswerAr = "تتبع طلبك من قسم الطلبات في حسابك باستخدام رقم الطلب أو رقم التتبع عند توفره.",
+                DisplayOrder = 3
+            },
+
+            // Cancellation & Return
+            new()
+            {
+                FaqCategoryId = returns.Id,
+                QuestionEn = "Can I cancel my order before it ships?",
+                QuestionAr = "هل يمكنني إلغاء طلبي قبل شحنه؟",
+                AnswerEn = "Cancellation is allowed while status is Pending. After Processing or Shipped, cancellation may not be possible.",
+                AnswerAr = "يمكن الإلغاء طالما أن حالة الطلب قيد الانتظار. بعد الانتقال للمعالجة أو الشحن قد لا يكون الإلغاء ممكنًا.",
+                DisplayOrder = 1
+            },
+            new()
+            {
+                FaqCategoryId = returns.Id,
+                QuestionEn = "What is your return policy?",
+                QuestionAr = "ما هي سياسة الإرجاع؟",
+                AnswerEn = "Returns accepted within 14 days if unused, in original packaging, and not excluded (e.g., hygiene items).",
+                AnswerAr = "يُقبل الإرجاع خلال 14 يومًا إذا كان غير مستخدم وفي عبوته الأصلية وغير مستثنى (مثل المنتجات الصحية).",
+                DisplayOrder = 2
+            },
+            new()
+            {
+                FaqCategoryId = returns.Id,
+                QuestionEn = "How do I request a return?",
+                QuestionAr = "كيف أطلب إرجاع منتج؟",
+                AnswerEn = "Submit a request from the Orders page with order number and reason. Approved requests receive instructions.",
+                AnswerAr = "قدّم طلب الإرجاع من صفحة الطلبات مع رقم الطلب والسبب. الطلبات المعتمدة تحصل على التعليمات.",
+                DisplayOrder = 3
+            },
+
+            // Product & Services
+            new()
+            {
+                FaqCategoryId = product.Id,
+                QuestionEn = "How do I choose size and color?",
+                QuestionAr = "كيف أختار المقاس واللون؟",
+                AnswerEn = "Select attributes (Size, Color) on the product page before adding to cart. We map sizes (S–XL) and colors (White, Black, etc.).",
+                AnswerAr = "اختر السمات (المقاس، اللون) من صفحة المنتج قبل الإضافة للسلة. نوفر مقاسات (S–XL) وألوان (أبيض، أسود...).",
+                DisplayOrder = 1
+            },
+            new()
+            {
+                FaqCategoryId = product.Id,
+                QuestionEn = "How are product ratings calculated?",
+                QuestionAr = "كيف يتم حساب تقييمات المنتج؟",
+                AnswerEn = "Average rating is computed from approved customer reviews (1–5 stars).",
+                AnswerAr = "يُحسب متوسط التقييم من المراجعات المعتمدة للعملاء (1–5 نجوم).",
+                DisplayOrder = 2
+            },
+            new()
+            {
+                FaqCategoryId = product.Id,
+                QuestionEn = "Can coupons stack with discounts?",
+                QuestionAr = "هل يمكن استخدام القسائم مع الخصومات؟",
+                AnswerEn = "Coupons apply if valid; stacking depends on coupon restrictions and active product discounts.",
+                AnswerAr = "تُطبق القسائم إذا كانت صالحة؛ الجمع يعتمد على قيود القسيمة والخصومات النشطة.",
+                DisplayOrder = 3
+            },
+            new()
+            {
+                FaqCategoryId = product.Id,
+                QuestionEn = "Are the brands authentic?",
+                QuestionAr = "هل العلامات التجارية أصلية؟",
+                AnswerEn = "We list verified brand products (Nike, Adidas, Levi's, etc.) from trusted sources.",
+                AnswerAr = "نُدرج منتجات علامات تجارية موثوقة (Nike، Adidas، Levi's، إلخ) من مصادر موثوقة.",
+                DisplayOrder = 4
+            }
+        };
+
+        context.Faqs.AddRange(faqs);
         await context.SaveChangesAsync();
     }
 

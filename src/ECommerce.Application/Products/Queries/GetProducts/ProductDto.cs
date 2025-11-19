@@ -5,7 +5,8 @@ public class ProductDto
     public Guid Id { get; set; }
     public string NameEn { get; set; } = string.Empty;
     public string NameAr { get; set; } = string.Empty;
-    public string? Description { get; set; }
+    public string? DescriptionEn { get; set; }
+    public string? DescriptionAr { get; set; }
     public double AverageRating { get; set; }
     public string SKU { get; set; } = string.Empty;
     public string CategoryNameEn { get; set; }

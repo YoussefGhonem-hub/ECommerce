@@ -22,7 +22,8 @@ public static class MappingConfig
             .Map(d => d.IsInWishlist,
                  s => s.FavoriteProducts.Any(fp => fp.UserId == CurrentUser.Id)
                    || s.FavoriteProducts.Any(fp => fp.GuestId == CurrentUser.GuestId))
-            .Map(d => d.Description, s => s.DescriptionEn ?? s.DescriptionAr);
+            .Map(d => d.DescriptionEn, s => s.DescriptionEn)
+            .Map(d => d.DescriptionAr, s => s.DescriptionAr);
 
         // Product details mapping
         TypeAdapterConfig<Product, ProductDetailsDto>.NewConfig()

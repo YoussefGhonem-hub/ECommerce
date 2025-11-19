@@ -13,7 +13,7 @@ public class OrderDto
     public decimal Total { get; set; }
 
     // Statuses
-    public int Status { get; set; }
+    public string Status { get; set; }
     public int PaymentStatus { get; set; }
 
     // Shipping / coupon / meta

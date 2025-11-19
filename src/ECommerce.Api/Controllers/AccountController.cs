@@ -13,7 +13,6 @@ namespace ECommerce.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
 public class AccountController : ControllerBase
 {
     private readonly IMediator _mediator;
@@ -31,7 +30,7 @@ public class AccountController : ControllerBase
     public async Task<IActionResult> Me([FromQuery] GetMyProfileQuery query)
     {
         var result = await _mediator.Send(query);
-        return result.Succeeded ? Ok(result) : Unauthorized(result);
+        return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 
     // PUT api/account/settings (multipart/form-data)

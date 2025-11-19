@@ -77,7 +77,7 @@ public class GetMyOrdersQueryHandler : IRequestHandler<GetMyOrdersQuery, Result<
                 ShippingTotal = o.ShippingTotal,
                 Total = o.Total,
 
-                Status = (int)o.Status,
+                Status = o.Status.ToString(),
                 PaymentStatus = (int)o.PaymentStatus,
 
                 ShippingAddressId = o.ShippingAddressId,

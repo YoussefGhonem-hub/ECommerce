@@ -22,8 +22,11 @@ public sealed class GetMyProfileQueryHandler : IRequestHandler<GetMyProfileQuery
 
     public async Task<Result<MyProfileDto>> Handle(GetMyProfileQuery request, CancellationToken cancellationToken)
     {
-        if (CurrentUser.Id == Guid.Empty)
-            return Result<MyProfileDto>.Failure("Not authenticated.");
+        if (CurrentUser.Id == Guid.Empty || CurrentUser.Id == null)
+            return Result<MyProfileDto>.Success(new MyProfileDto
+            {
+                AvatarUrl = null
+            });
 
         var user = await _userManager.FindByIdAsync(CurrentUser.Id.ToString());
         if (user is null)

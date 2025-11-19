@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ECommerce.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20251115085440_itemDiscount")]
-    partial class itemDiscount
+    [Migration("20251119224924_int")]
+    partial class @int
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -36,7 +36,8 @@ namespace ECommerce.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("DisplayName")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
 
                     b.Property<string>("Name")
                         .HasMaxLength(256)
@@ -64,6 +65,9 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("int");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
@@ -171,8 +175,6 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsDeleted");
-
                     b.ToTable("Banners");
                 });
 
@@ -216,8 +218,6 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsDeleted");
-
                     b.ToTable("Brands");
                 });
 
@@ -255,8 +255,6 @@ namespace ECommerce.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("IsDeleted");
 
                     b.HasIndex("UserId");
 
@@ -302,8 +300,6 @@ namespace ECommerce.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CartId");
-
-                    b.HasIndex("IsDeleted");
 
                     b.HasIndex("ProductId");
 
@@ -357,8 +353,6 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasIndex("CartItemId");
 
-                    b.HasIndex("IsDeleted");
-
                     b.HasIndex("ProductAttributeId");
 
                     b.HasIndex("ProductAttributeValueId");
@@ -411,8 +405,6 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsDeleted");
-
                     b.HasIndex("NameAr");
 
                     b.HasIndex("NameEn");
@@ -464,8 +456,6 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasIndex("CountryId");
 
-                    b.HasIndex("IsDeleted");
-
                     b.ToTable("Cities");
                 });
 
@@ -505,8 +495,6 @@ namespace ECommerce.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("IsDeleted");
 
                     b.ToTable("Countries");
                 });
@@ -574,8 +562,6 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsDeleted");
-
                     b.HasIndex("UserId");
 
                     b.ToTable("Coupons");
@@ -619,9 +605,134 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasIndex("CouponId");
 
-                    b.HasIndex("IsDeleted");
-
                     b.ToTable("CouponUsages");
+                });
+
+            modelBuilder.Entity("ECommerce.Domain.Entities.Faq", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AnswerAr")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AnswerEn")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("DeletedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("DisplayOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.Property<Guid>("FaqCategoryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("ModifiedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ModifiedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("QuestionAr")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("QuestionEn")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DisplayOrder");
+
+                    b.HasIndex("FaqCategoryId");
+
+                    b.HasIndex("IsActive");
+
+                    b.ToTable("Faqs");
+                });
+
+            modelBuilder.Entity("ECommerce.Domain.Entities.FaqCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("DeletedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("DisplayOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("ModifiedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ModifiedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("NameAr")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("NameEn")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DisplayOrder");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("NameAr");
+
+                    b.HasIndex("NameEn");
+
+                    b.ToTable("FaqCategories");
                 });
 
             modelBuilder.Entity("ECommerce.Domain.Entities.FavoriteProduct", b =>
@@ -661,8 +772,6 @@ namespace ECommerce.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("IsDeleted");
 
                     b.HasIndex("ProductId");
 
@@ -705,8 +814,6 @@ namespace ECommerce.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("IsDeleted");
 
                     b.HasIndex("ProductId");
 
@@ -793,8 +900,6 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsDeleted");
-
                     b.HasIndex("ShippingAddressId");
 
                     b.HasIndex("ShippingMethodId");
@@ -851,8 +956,6 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsDeleted");
-
                     b.HasIndex("OrderId");
 
                     b.HasIndex("ProductId");
@@ -904,8 +1007,6 @@ namespace ECommerce.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("IsDeleted");
 
                     b.HasIndex("OrderItemId");
 
@@ -1001,8 +1102,6 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasIndex("CategoryId");
 
-                    b.HasIndex("IsDeleted");
-
                     b.HasIndex("ProductSettingId");
 
                     b.HasIndex("UserId");
@@ -1042,8 +1141,6 @@ namespace ECommerce.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("IsDeleted");
 
                     b.ToTable("ProductAttributes");
                 });
@@ -1085,8 +1182,6 @@ namespace ECommerce.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("IsDeleted");
 
                     b.HasIndex("ProductAttributeId");
 
@@ -1132,8 +1227,6 @@ namespace ECommerce.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("IsDeleted");
 
                     b.HasIndex("ProductAttributeId");
 
@@ -1182,8 +1275,6 @@ namespace ECommerce.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("IsDeleted");
 
                     b.HasIndex("ProductId", "IsMain")
                         .IsUnique()
@@ -1243,8 +1334,6 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsDeleted");
-
                     b.HasIndex("ProductId");
 
                     b.HasIndex("UserId1");
@@ -1302,11 +1391,75 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsDeleted");
-
                     b.HasIndex("UserId");
 
                     b.ToTable("ProductSettings");
+                });
+
+            modelBuilder.Entity("ECommerce.Domain.Entities.RefreshToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CreatedByIp")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("CreatedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("DeletedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("ModifiedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ModifiedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ReasonRevoked")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ReplacedByTokenHash")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("RevokedByIp")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("ECommerce.Domain.Entities.ShippingMethod", b =>
@@ -1356,8 +1509,6 @@ namespace ECommerce.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsDeleted");
-
                     b.HasIndex("UserId");
 
                     b.ToTable("ShippingMethods");
@@ -1401,8 +1552,6 @@ namespace ECommerce.Infrastructure.Migrations
                     b.HasIndex("CityId");
 
                     b.HasIndex("CountryId");
-
-                    b.HasIndex("IsDeleted");
 
                     b.ToTable("ShippingZones");
                 });
@@ -1459,8 +1608,6 @@ namespace ECommerce.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CityId");
-
-                    b.HasIndex("IsDeleted");
 
                     b.HasIndex("UserId");
 
@@ -1585,6 +1732,53 @@ namespace ECommerce.Infrastructure.Migrations
                     b.ToTable("ShippingMethodShippingZone");
                 });
 
+            modelBuilder.Entity("ECommerce.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.OwnsOne("ECommerce.Domain.Entities.UserSocialProfiles", "SocialProfiles", b1 =>
+                        {
+                            b1.Property<Guid>("ApplicationUserId")
+                                .HasColumnType("uniqueidentifier");
+
+                            b1.Property<string>("FacebookUrl")
+                                .HasMaxLength(512)
+                                .HasColumnType("nvarchar(512)");
+
+                            b1.Property<string>("InstagramUrl")
+                                .HasMaxLength(512)
+                                .HasColumnType("nvarchar(512)");
+
+                            b1.Property<string>("TelegramUrl")
+                                .HasMaxLength(512)
+                                .HasColumnType("nvarchar(512)");
+
+                            b1.Property<string>("TikTokUrl")
+                                .HasMaxLength(512)
+                                .HasColumnType("nvarchar(512)");
+
+                            b1.Property<string>("WebsiteUrl")
+                                .HasMaxLength(512)
+                                .HasColumnType("nvarchar(512)");
+
+                            b1.Property<string>("WhatsAppUrl")
+                                .HasMaxLength(512)
+                                .HasColumnType("nvarchar(512)");
+
+                            b1.Property<string>("YouTubeUrl")
+                                .HasMaxLength(512)
+                                .HasColumnType("nvarchar(512)");
+
+                            b1.HasKey("ApplicationUserId");
+
+                            b1.ToTable("AspNetUsers");
+
+                            b1.WithOwner()
+                                .HasForeignKey("ApplicationUserId");
+                        });
+
+                    b.Navigation("SocialProfiles")
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ECommerce.Domain.Entities.Cart", b =>
                 {
                     b.HasOne("ECommerce.Domain.Entities.ApplicationUser", "User")
@@ -1677,6 +1871,17 @@ namespace ECommerce.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Coupon");
+                });
+
+            modelBuilder.Entity("ECommerce.Domain.Entities.Faq", b =>
+                {
+                    b.HasOne("ECommerce.Domain.Entities.FaqCategory", "Category")
+                        .WithMany("Faqs")
+                        .HasForeignKey("FaqCategoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Category");
                 });
 
             modelBuilder.Entity("ECommerce.Domain.Entities.FavoriteProduct", b =>
@@ -1868,6 +2073,17 @@ namespace ECommerce.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("ECommerce.Domain.Entities.RefreshToken", b =>
+                {
+                    b.HasOne("ECommerce.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ECommerce.Domain.Entities.ShippingMethod", b =>
                 {
                     b.HasOne("ECommerce.Domain.Entities.ApplicationUser", "User")
@@ -2002,6 +2218,11 @@ namespace ECommerce.Infrastructure.Migrations
             modelBuilder.Entity("ECommerce.Domain.Entities.Country", b =>
                 {
                     b.Navigation("Cities");
+                });
+
+            modelBuilder.Entity("ECommerce.Domain.Entities.FaqCategory", b =>
+                {
+                    b.Navigation("Faqs");
                 });
 
             modelBuilder.Entity("ECommerce.Domain.Entities.Order", b =>

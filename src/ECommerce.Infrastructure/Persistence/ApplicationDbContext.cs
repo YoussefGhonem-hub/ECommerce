@@ -33,8 +33,9 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     public DbSet<ProductAttributeMapping> ProductAttributeMappings => Set<ProductAttributeMapping>();
     public DbSet<Banner> Banners => Set<Banner>();
     public DbSet<FeaturedProduct> FeaturedProducts => Set<FeaturedProduct>();
-
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<Faq> Faqs => Set<Faq>();
+    public DbSet<FaqCategory> FaqCategories => Set<FaqCategory>();
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         => base.SaveChangesAsync(cancellationToken);
