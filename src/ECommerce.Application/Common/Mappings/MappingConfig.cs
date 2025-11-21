@@ -1,6 +1,7 @@
 using ECommerce.Application.Carts.Queries.GetCartQuery;
 using ECommerce.Application.Orders.Queries.GetMyOrders;
 using ECommerce.Application.Products.Queries.GetProductById;
+using ECommerce.Application.Products.Queries.GetProductByIdForUpdate;
 using ECommerce.Application.Products.Queries.GetProducts;
 using ECommerce.Domain.Entities;
 using ECommerce.Shared.CurrentUser;
@@ -10,28 +11,31 @@ namespace ECommerce.Application.Common.Mappings;
 
 public static class MappingConfig
 {
+    private const string FallbackImage =
+        "https://images.pexels.com/photos/90946/pexels-photo-90946.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=500";
+
     public static void Register()
     {
-        // Product list item mapping
+        // Product list item
         TypeAdapterConfig<Product, ProductDto>.NewConfig()
             .Map(d => d.CategoryNameEn, s => s.Category != null ? s.Category.NameEn : string.Empty)
             .Map(d => d.CategoryNameAr, s => s.Category != null ? s.Category.NameAr : string.Empty)
             .Map(d => d.MainImagePath,
                  s => s.Images.Where(i => i.IsMain).Select(i => i.Path).FirstOrDefault()
-                      ?? "https://images.pexels.com/photos/90946/pexels-photo-90946.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=500")
+                      ?? FallbackImage)
             .Map(d => d.IsInWishlist,
                  s => s.FavoriteProducts.Any(fp => fp.UserId == CurrentUser.Id)
                    || s.FavoriteProducts.Any(fp => fp.GuestId == CurrentUser.GuestId))
             .Map(d => d.DescriptionEn, s => s.DescriptionEn)
             .Map(d => d.DescriptionAr, s => s.DescriptionAr);
 
-        // Product details mapping
+        // Product details
         TypeAdapterConfig<Product, ProductDetailsDto>.NewConfig()
             .Map(d => d.CategoryNameEn, s => s.Category != null ? s.Category.NameEn : string.Empty)
             .Map(d => d.CategoryNameAr, s => s.Category != null ? s.Category.NameAr : string.Empty)
             .Map(d => d.MainImagePath,
                  s => s.Images.Where(i => i.IsMain).Select(i => i.Path).FirstOrDefault()
-                      ?? "https://images.pexels.com/photos/90946/pexels-photo-90946.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=500")
+                      ?? FallbackImage)
             .Map(d => d.Images,
                  s => s.Images
                        .OrderBy(i => i.SortOrder)
@@ -62,12 +66,25 @@ public static class MappingConfig
                  s => s.FavoriteProducts.Any(fp => fp.UserId == CurrentUser.Id)
                    || s.FavoriteProducts.Any(fp => fp.GuestId == CurrentUser.GuestId));
 
+        // NEW: Product for update form (lean)
+        TypeAdapterConfig<Product, ProductForUpdateDto>.NewConfig()
+            .Map(d => d.Images,
+                 s => s.Images
+                       .OrderBy(i => i.SortOrder)
+                       .Select(i => new ProductImageForUpdateDto
+                       {
+                           Id = i.Id,
+                           Path = i.Path,
+                           IsMain = i.IsMain,
+                           SortOrder = i.SortOrder
+                       }));
+
         // Cart -> CartDto
         TypeAdapterConfig<Cart, CartDto>.NewConfig()
             .Map(d => d.Id, s => s.Id)
             .Map(d => d.Items, s => s.Items);
 
-        // CartItem -> CartItemDto (reads Product info)
+        // CartItem -> CartItemDto
         TypeAdapterConfig<CartItem, CartItemDto>.NewConfig()
             .Map(d => d.Id, s => s.Id)
             .Map(d => d.ProductId, s => s.ProductId)
@@ -81,8 +98,8 @@ public static class MappingConfig
             .Map(d => d.MainImagePath,
                  s => s.Product != null
                     ? (s.Product.Images.Where(img => img.IsMain).Select(img => img.Path).FirstOrDefault()
-                       ?? "https://images.pexels.com/photos/90946/pexels-photo-90946.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=500")
-                    : "https://images.pexels.com/photos/90946/pexels-photo-90946.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=500")
+                       ?? FallbackImage)
+                    : FallbackImage)
             .Map(d => d.AverageRating,
                  s => s.Product != null
                     ? (s.Product.ProductReviews.Where(r => r.IsApproved).Select(r => (double?)r.Rating).Average() ?? 0d)
@@ -101,7 +118,7 @@ public static class MappingConfig
             .Map(d => d.AttributeName, s => s.AttributeName)
             .Map(d => d.Value, s => s.Value);
 
-        // Orders mapping (existing)
+        // Orders
         TypeAdapterConfig<Order, OrderDto>.NewConfig()
             .Map(d => d.Items, s => s.Items);
         TypeAdapterConfig<OrderItem, OrderItemDto>.NewConfig();

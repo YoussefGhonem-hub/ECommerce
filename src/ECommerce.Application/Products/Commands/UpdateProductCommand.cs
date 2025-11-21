@@ -19,10 +19,10 @@ public record UpdateProductCommand(
     int StockQuantity,
     bool AllowBackorder,
     string? Brand,
-    IReadOnlyList<IFormFile>? NewImages,    // new: images to add
-    int? MainNewImageIndex,                 // new: if setting a new uploaded image as main
-    IReadOnlyList<Guid>? RemoveImageIds,    // new: existing images to delete
-    Guid? SetMainImageId                    // new: make an existing image main
+    IReadOnlyList<IFormFile>? NewImages,
+    int? MainNewImageIndex,
+    IReadOnlyList<Guid>? RemoveImageIds,
+    Guid? SetMainImageId
 ) : IRequest<Result<bool>>;
 
 public class UpdateProductHandler : IRequestHandler<UpdateProductCommand, Result<bool>>
@@ -42,9 +42,9 @@ public class UpdateProductHandler : IRequestHandler<UpdateProductCommand, Result
             .Include(p => p.Images)
             .FirstOrDefaultAsync(p => p.Id == request.Id, cancellationToken);
 
-        if (product is null) return Result<bool>.Failure("Not found");
+        if (product is null) return Result<bool>.Failure("Product.NotFound");
 
-        // Update fields
+        // Update basic scalar fields
         product.NameAr = request.NameAr;
         product.NameEn = request.NameEn;
         product.DescriptionAr = request.DescriptionAr;
@@ -55,6 +55,12 @@ public class UpdateProductHandler : IRequestHandler<UpdateProductCommand, Result
         product.StockQuantity = request.StockQuantity;
         product.AllowBackorder = request.AllowBackorder;
         product.Brand = request.Brand;
+
+        // Track if original main image will be removed
+        var originalMainImageId = product.Images.FirstOrDefault(i => i.IsMain)?.Id;
+        var removingMain = originalMainImageId != null
+                           && request.RemoveImageIds is { Count: > 0 }
+                           && request.RemoveImageIds.Contains(originalMainImageId.Value);
 
         // Remove images
         if (request.RemoveImageIds is { Count: > 0 })
@@ -67,7 +73,7 @@ public class UpdateProductHandler : IRequestHandler<UpdateProductCommand, Result
             }
         }
 
-        // Add new images
+        // Add new images (all start as non-main)
         var addedImages = new List<Domain.Entities.ProductImage>();
         if (request.NewImages is { Count: > 0 })
         {
@@ -84,24 +90,63 @@ public class UpdateProductHandler : IRequestHandler<UpdateProductCommand, Result
                     SortOrder = startOrder + (idx++)
                 };
                 addedImages.Add(img);
+                product.Images.Add(img); // ensure part of navigation collection for later main assignment
                 _context.ProductImages.Add(img);
             }
         }
 
-        // Set main image if requested
+        // Decide new main image
+        // Precedence: SetMainImageId (existing or newly added) > MainNewImageIndex (new uploads) > auto-fix (if no main)
         if (request.SetMainImageId.HasValue)
         {
+            var targetId = request.SetMainImageId.Value;
+            var target = product.Images.FirstOrDefault(i => i.Id == targetId);
+
+            // Validate the target exists and is not removed
+            if (target == null)
+                return Result<bool>.Failure("MainImage.InvalidId");
+
             foreach (var img in product.Images)
-                img.IsMain = img.Id == request.SetMainImageId.Value;
+                img.IsMain = img.Id == targetId;
         }
         else if (request.MainNewImageIndex.HasValue && addedImages.Count > 0)
         {
-            // Set one of the newly added images as main
             var mainIdx = request.MainNewImageIndex.Value;
             if (mainIdx < 0 || mainIdx >= addedImages.Count) mainIdx = 0;
 
-            foreach (var img in product.Images) img.IsMain = false;
+            foreach (var img in product.Images)
+                img.IsMain = false;
+
             addedImages[mainIdx].IsMain = true;
+        }
+        else
+        {
+            // Automatic fix if:
+            // - main removed OR
+            // - product has no main at all after modifications
+            var hasMain = product.Images.Any(i => i.IsMain);
+            if (!hasMain || removingMain)
+            {
+                var candidate = product.Images
+                    .OrderBy(i => i.SortOrder)
+                    .FirstOrDefault();
+
+                foreach (var img in product.Images)
+                    img.IsMain = false;
+
+                if (candidate != null)
+                    candidate.IsMain = true;
+            }
+        }
+
+        // Defensive: ensure only one main (in case of inconsistent state)
+        var mains = product.Images.Where(i => i.IsMain).ToList();
+        if (mains.Count > 1)
+        {
+            // Keep the one with smallest SortOrder as main
+            var keep = mains.OrderBy(i => i.SortOrder).First();
+            foreach (var img in product.Images)
+                img.IsMain = img.Id == keep.Id;
         }
 
         await _context.SaveChangesAsync(cancellationToken);
