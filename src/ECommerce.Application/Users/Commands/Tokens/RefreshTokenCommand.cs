@@ -34,24 +34,15 @@ public sealed class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCom
         if (string.IsNullOrWhiteSpace(request.RefreshToken))
             return Result<TokenPairResponse>.Failure("Refresh token is required.");
 
-        var (user, token) = await _refreshTokens.GetActiveAsync(request.RefreshToken, ct);
-        if (user is null || token is null)
+        var (user, currentToken) = await _refreshTokens.GetActiveAsync(request.RefreshToken, ct);
+        if (user is null || currentToken is null)
             return Result<TokenPairResponse>.Failure("Invalid or expired refresh token.");
 
-        // rotate refresh token
         var ip = _http.HttpContext?.Connection.RemoteIpAddress?.ToString();
-        var (newRefreshPlain, newRefreshExp) = await _refreshTokens.CreateAsync(user, ip, ct);
-        var replacement = new RefreshToken
-        {
-            UserId = user.Id,
-            TokenHash = _refreshTokens.Hash(newRefreshPlain),
-            ExpiresAtUtc = newRefreshExp,
-            CreatedAtUtc = DateTime.UtcNow,
-            CreatedByIp = ip
-        };
-        await _refreshTokens.RotateAsync(token, replacement, ip, ct);
 
-        // issue access token
+        // Atomic rotate (no duplicate insert)
+        var (newRefreshPlain, newRefreshExp) = await _refreshTokens.RotateAsync(currentToken, user, ip, ct);
+
         var roles = await _userManager.GetRolesAsync(user);
         var (access, accessExp) = _tokens.GenerateAccessToken(user, roles);
 

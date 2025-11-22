@@ -11,7 +11,7 @@ public interface IRefreshTokenService
 {
     Task<(string Token, DateTime ExpiresAtUtc)> CreateAsync(ApplicationUser user, string? ip, CancellationToken ct);
     Task<(ApplicationUser? User, RefreshToken? Token)> GetActiveAsync(string refreshToken, CancellationToken ct);
-    Task RotateAsync(RefreshToken current, RefreshToken replacement, string? ip, CancellationToken ct);
+    Task<(string Plain, DateTime ExpiresAtUtc)> RotateAsync(RefreshToken current, ApplicationUser user, string? ip, CancellationToken ct);
     Task RevokeAsync(RefreshToken token, string reason, string? ip, CancellationToken ct);
     string Hash(string token);
 }
@@ -59,13 +59,50 @@ public class RefreshTokenService : IRefreshTokenService
         return (token.User, token);
     }
 
-    public async Task RotateAsync(RefreshToken current, RefreshToken replacement, string? ip, CancellationToken ct)
+    // NEW: single atomic rotation (revokes current, creates new, returns plain + expiry)
+    public async Task<(string Plain, DateTime ExpiresAtUtc)> RotateAsync(RefreshToken current, ApplicationUser user, string? ip, CancellationToken ct)
     {
+        // Revoke current
         current.RevokedAtUtc = DateTime.UtcNow;
         current.RevokedByIp = ip;
+
+        // Generate new
+        var plain = GenerateSecureToken();
+        var hash = Hash(plain);
+        var expires = DateTime.UtcNow.AddDays(_settings.RefreshTokenTtlDays);
+
+        var replacement = new RefreshToken
+        {
+            UserId = user.Id,
+            TokenHash = hash,
+            ExpiresAtUtc = expires,
+            CreatedAtUtc = DateTime.UtcNow,
+            CreatedByIp = ip
+        };
+
+        // Link
         current.ReplacedByTokenHash = replacement.TokenHash;
+
         _db.RefreshTokens.Add(replacement);
-        await _db.SaveChangesAsync(ct);
+
+        // Extremely unlikely collision safeguard
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message?.Contains("IX_RefreshTokens_TokenHash") == true)
+        {
+            // regenerate once
+            plain = GenerateSecureToken();
+            hash = Hash(plain);
+            expires = DateTime.UtcNow.AddDays(_settings.RefreshTokenTtlDays);
+            replacement.TokenHash = hash;
+            replacement.ExpiresAtUtc = expires;
+            current.ReplacedByTokenHash = hash;
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return (plain, expires);
     }
 
     public async Task RevokeAsync(RefreshToken token, string reason, string? ip, CancellationToken ct)
