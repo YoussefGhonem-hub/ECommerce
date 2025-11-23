@@ -12,21 +12,20 @@ public class GetProductByIdForUpdateHandler : IRequestHandler<GetProductByIdForU
     private readonly ApplicationDbContext _context;
     public GetProductByIdForUpdateHandler(ApplicationDbContext context) => _context = context;
 
-    public async Task<Result<ProductForUpdateDto>> Handle(GetProductByIdForUpdateQuery request, CancellationToken cancellationToken)
+    public async Task<Result<ProductForUpdateDto>> Handle(GetProductByIdForUpdateQuery request, CancellationToken ct)
     {
         var product = await _context.Products
             .Include(p => p.Images)
-            .FirstOrDefaultAsync(p => p.Id == request.Id, cancellationToken);
+            .FirstOrDefaultAsync(p => p.Id == request.Id, ct);
 
         if (product is null)
             return Result<ProductForUpdateDto>.Failure("Product.NotFound");
 
-        // Load mappings (attribute + value)
         var mappings = await _context.ProductAttributeMappings
             .Include(m => m.ProductAttribute)
             .Include(m => m.ProductAttributeValue)
             .Where(m => m.ProductId == product.Id)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(ct);
 
         var dto = new ProductForUpdateDto
         {
@@ -51,34 +50,13 @@ public class GetProductByIdForUpdateHandler : IRequestHandler<GetProductByIdForU
                     Path = i.Path,
                     IsMain = i.IsMain,
                     SortOrder = i.SortOrder
-                }).ToList(),
-            AllMappings = mappings
-                .Select(m => new ProductAttributeMappingForUpdateDto
-                {
-                    MappingId = m.Id,
-                    AttributeId = m.ProductAttributeId,
-                    AttributeName = m.ProductAttribute.Name,
-                    ValueId = m.ProductAttributeValueId,
-                    Value = m.ProductAttributeValue?.Value
-                })
-                .OrderBy(x => x.AttributeName)
-                .ThenBy(x => x.Value)
-                .ToList()
+                }).ToList()
         };
 
-        // Group mappings by attribute
-        var attrGroups = mappings
-            .GroupBy(m => m.ProductAttributeId);
-
-        foreach (var g in attrGroups)
+        foreach (var g in mappings.GroupBy(m => m.ProductAttributeId))
         {
-            var attribute = g.First().ProductAttribute;
-            if (attribute == null) continue;
-
-            // All existing values for attribute
-            var allValues = await _context.ProductAttributeValues
-                .Where(v => v.ProductAttributeId == attribute.Id)
-                .ToListAsync(cancellationToken);
+            var attr = g.First().ProductAttribute;
+            if (attr == null) continue;
 
             var selectedValueIds = g
                 .Where(m => m.ProductAttributeValueId != null)
@@ -86,11 +64,15 @@ public class GetProductByIdForUpdateHandler : IRequestHandler<GetProductByIdForU
                 .Distinct()
                 .ToHashSet();
 
-            var attrDto = new ProductAttributeForUpdateDto
+            // Load ALL allowed values for attribute so UI can show unselected ones
+            var allValues = await _context.ProductAttributeValues
+                .Where(v => v.ProductAttributeId == attr.Id)
+                .ToListAsync(ct);
+
+            dto.Attributes.Add(new ProductAttributeForUpdateDto
             {
-                AttributeId = attribute.Id,
-                AttributeName = attribute.Name,
-                HasNullMapping = g.Any(m => m.ProductAttributeValueId == null),
+                AttributeId = attr.Id,
+                AttributeName = attr.Name,
                 Values = allValues
                     .Select(v => new ProductAttributeValueForUpdateDto
                     {
@@ -99,21 +81,8 @@ public class GetProductByIdForUpdateHandler : IRequestHandler<GetProductByIdForU
                         IsSelected = selectedValueIds.Contains(v.Id)
                     })
                     .OrderBy(v => v.Value)
-                    .ToList(),
-                Mappings = g
-                    .Select(m => new ProductAttributeMappingForUpdateDto
-                    {
-                        MappingId = m.Id,
-                        AttributeId = m.ProductAttributeId,
-                        AttributeName = attribute.Name,
-                        ValueId = m.ProductAttributeValueId,
-                        Value = m.ProductAttributeValue?.Value
-                    })
-                    .OrderBy(x => x.Value)
                     .ToList()
-            };
-
-            dto.Attributes.Add(attrDto);
+            });
         }
 
         return Result<ProductForUpdateDto>.Success(dto);
