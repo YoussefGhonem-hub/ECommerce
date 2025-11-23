@@ -18,6 +18,20 @@ public static class SoftDeleteQueryExtension
             }
         }
     }
+    public static void AddSoftDeleteQueryFilter3(this IMutableEntityType entityType)
+    {
+        // Guard: only apply if the type derives from BaseAuditableEntity
+        if (!typeof(BaseAuditableEntity).IsAssignableFrom(entityType.ClrType))
+            return;
+
+        // Build lambda expression e => e.IsDeleted for the concrete type
+        var parameter = Expression.Parameter(entityType.ClrType, "e");
+        var prop = Expression.Property(parameter, nameof(BaseAuditableEntity.IsDeleted));
+        var body = Expression.Equal(prop, Expression.Constant(true)); // only deleted
+        var lambda = Expression.Lambda(body, parameter);
+
+        entityType.SetQueryFilter(lambda);
+    }
     private static void AddSoftDeleteQueryFilter(this IMutableEntityType entityData)
     {
         var methodToCall = typeof(SoftDeleteQueryExtension).GetMethod(nameof(GetSoftDeleteFilter),

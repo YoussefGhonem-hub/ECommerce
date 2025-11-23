@@ -1,5 +1,6 @@
 using ECommerce.Domain.Common;
 using ECommerce.Domain.Entities;
+using ECommerce.Infrastructure.Extensions;
 using ECommerce.Shared.CurrentUser;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -44,6 +45,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+
+        modelBuilder.GetOnlyNotDeletedEntities();
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
@@ -55,7 +58,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     private void ApplyAuditing()
     {
         var now = DateTimeOffset.UtcNow;
-        var userId = CurrentUser.Id; // may be null (background tasks / seeding)
+        var userId = CurrentUser.Id;
 
         foreach (var entry in ChangeTracker.Entries())
         {
@@ -64,32 +67,27 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
             switch (entry.State)
             {
                 case EntityState.Added:
-                    if (auditable.CreatedDate == default)
-                        auditable.CreatedDate = now;
-                    if (auditable.CreatedBy == Guid.Empty && userId.HasValue)
-                        auditable.CreatedBy = userId.Value;
-                    // Ensure flags
+                    if (auditable.CreatedDate == default) auditable.CreatedDate = now;
+                    if (auditable.CreatedBy == Guid.Empty && userId.HasValue) auditable.CreatedBy = userId.Value;
                     auditable.IsDeleted = false;
                     break;
 
                 case EntityState.Modified:
                     auditable.ModifiedDate = now;
-                    if (userId.HasValue)
-                        auditable.ModifiedBy = userId.Value;
-                    // Prevent accidental overwrite of Created fields
+                    if (userId.HasValue) auditable.ModifiedBy = userId.Value;
                     entry.Property(nameof(BaseAuditableEntity.CreatedDate)).IsModified = false;
                     entry.Property(nameof(BaseAuditableEntity.CreatedBy)).IsModified = false;
                     break;
 
                 case EntityState.Deleted:
-                    // Soft delete pattern (if you want hard delete remove this branch)
                     entry.State = EntityState.Modified;
                     auditable.IsDeleted = true;
                     auditable.DeletedDate = now;
-                    if (userId.HasValue)
-                        auditable.DeletedBy = userId.Value;
+                    if (userId.HasValue) auditable.DeletedBy = userId.Value;
                     break;
             }
         }
     }
+
+
 }
