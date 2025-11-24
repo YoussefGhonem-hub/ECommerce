@@ -1,4 +1,5 @@
 using ECommerce.Application.ProductAttributes.Commands;
+using ECommerce.Application.ProductAttributes.Queries.GetDropdown;
 using ECommerce.Application.ProductAttributes.Queries.GetProductAttributeById;
 using ECommerce.Application.ProductAttributes.Queries.GetUserOrderedAttributes;
 using MediatR;
@@ -22,7 +23,15 @@ public class ProductAttributesController : ControllerBase
         var result = await _mediator.Send(new GetAdminAttributesQuery(), ct);
         return result.Succeeded ? Ok(result.Data) : BadRequest(result.Errors);
     }
-
+    // Dropdown (no pagination)
+    [Authorize]
+    [HttpGet("dropdown")]
+    public async Task<IActionResult> Dropdown(
+        CancellationToken ct = default)
+    {
+        var result = await _mediator.Send(new GetProductAttributesDropdownQuery(), ct);
+        return result.Succeeded ? Ok(result.Data) : BadRequest(result.Errors);
+    }
     // Get by id
     [Authorize]
     [HttpGet("{id:guid}")]
