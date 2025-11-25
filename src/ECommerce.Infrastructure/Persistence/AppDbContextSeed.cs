@@ -1,4 +1,5 @@
 using ECommerce.Domain.Entities;
+using ECommerce.Shared.Extensions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -17,22 +18,26 @@ public static class AppDbContextSeed
         await SeedRolesAsync(roleManager);
         await SeedUsersAsync(userManager);
 
-        // Prefer the Admin account, not SuperAdmin
-        var adminId = await GetAdminUserIdAsync(userManager);              // CHANGED
+        var adminId = await GetAdminUserIdAsync(userManager);
         var customerId = await GetFirstUserIdInRoleAsync(userManager, "Customer");
+
+        //// ORDER CHANGED: Countries & cities must exist before addresses / shipping / products referencing them
+        await SeedCountriesAndCitiesAsync(context, env);
+        await SeedFreeShippingMethodAsync(context, threshold: 1000m, baseCost: 50m);
+        await SeedCustomerUserAddressesAsync(context, customerId);
 
         await SeedCategoriesAsync(context);
         await SeedProductsAsync(context, adminId);
         await SeedFeaturedProductsAsync(context);
         await SeedFashionCatalogAsync(context, userManager);
-        await SeedCustomerUserAddressesAsync(context, customerId);
         await SeedProductAttributesForTShirtsAsync(context, adminId);
         await SeedCouponsAsync(context, userManager, adminId);
         await SeedProductSettingsAsync(context, adminId);
-        await SeedCountriesAndCitiesAsync(context, env);
-        await SeedFreeShippingMethodAsync(context, threshold: 1000m, baseCost: 50m);
-        await SeedFaqCategoriesAsync(context); // NEW - Seed FAQ categories before FAQs
-        await SeedFaqsAsync(context, adminId); // NEW
+        await SeedFaqCategoriesAsync(context);
+        await SeedFaqsAsync(context, adminId);
+
+        // AFTER products & addresses exist
+        await SeedSampleOrdersAsync(context, userManager);
     }
 
     private static async Task<Guid?> GetFirstUserIdInRoleAsync(UserManager<ApplicationUser> userManager, string role)
@@ -172,8 +177,14 @@ public static class AppDbContextSeed
 
     private static async Task SeedCountriesAndCitiesAsync(ApplicationDbContext context, IWebHostEnvironment env)
     {
-        if (await context.Countries.AnyAsync())
-            return;
+        // FIX: Previous logic returned early if ANY country existed, leaving cities/zones empty and causing FK failures.
+        // We now ensure both countries AND cities exist. If countries exist but cities do not, we seed cities for existing countries.
+
+        var countriesExist = await context.Countries.AnyAsync();
+        var citiesExist = await context.Cities.AnyAsync();
+
+        if (countriesExist && citiesExist)
+            return; // already fully seeded
 
         var path = Path.Combine(env.WebRootPath, "SeedData", "eg.locations.json");
         if (!File.Exists(path)) return;
@@ -182,48 +193,80 @@ public static class AppDbContextSeed
         var root = JsonSerializer.Deserialize<RootSeed>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         if (root?.Countries is null || root.Countries.Count == 0) return;
 
-        foreach (var countrySeed in root.Countries)
+        // If countries exist but cities do not, do NOT re-add countries again (avoid duplicates).
+        if (!countriesExist)
         {
-            var country = new Country { NameEn = countrySeed.NameEn, NameAr = countrySeed.NameAr };
-            context.Countries.Add(country);
-            await context.SaveChangesAsync();
-
-            foreach (var citySeed in countrySeed.Cities)
+            foreach (var countrySeed in root.Countries)
             {
-                var city = new City { NameEn = citySeed.NameEn, NameAr = citySeed.NameAr, CountryId = country.Id };
-                context.Cities.Add(city);
+                var country = new Country { NameEn = countrySeed.NameEn, NameAr = countrySeed.NameAr };
+                context.Countries.Add(country);
                 await context.SaveChangesAsync();
 
-                var zone = new ShippingZone { CountryId = country.Id, CityId = city.Id };
-                context.ShippingZones.Add(zone);
-                await context.SaveChangesAsync();
+                foreach (var citySeed in countrySeed.Cities)
+                {
+                    var city = new City { NameEn = citySeed.NameEn, NameAr = citySeed.NameAr, CountryId = country.Id };
+                    context.Cities.Add(city);
+                    await context.SaveChangesAsync();
+
+                    var zone = new ShippingZone { CountryId = country.Id, CityId = city.Id };
+                    context.ShippingZones.Add(zone);
+                    await context.SaveChangesAsync();
+                }
+            }
+        }
+        else
+        {
+            // Countries exist but cities do not -> seed cities for existing countries based on JSON
+            foreach (var countrySeed in root.Countries)
+            {
+                var existingCountry = await context.Countries.FirstOrDefaultAsync(c => c.NameEn == countrySeed.NameEn);
+                if (existingCountry == null) continue;
+
+                foreach (var citySeed in countrySeed.Cities)
+                {
+                    var cityExists = await context.Cities.AnyAsync(c =>
+                        c.CountryId == existingCountry.Id && c.NameEn == citySeed.NameEn);
+                    if (cityExists) continue;
+
+                    var city = new City { NameEn = citySeed.NameEn, NameAr = citySeed.NameAr, CountryId = existingCountry.Id };
+                    context.Cities.Add(city);
+                    await context.SaveChangesAsync();
+
+                    var zone = new ShippingZone { CountryId = existingCountry.Id, CityId = city.Id };
+                    context.ShippingZones.Add(zone);
+                    await context.SaveChangesAsync();
+                }
             }
         }
 
+        // Ensure a baseline free shipping method for Cairo if present
         var egypt = await context.Countries.FirstOrDefaultAsync(c => c.NameEn == "Egypt");
         if (egypt != null)
         {
             var cairo = await context.Cities.FirstOrDefaultAsync(c => c.CountryId == egypt.Id && c.NameEn == "Cairo");
             if (cairo != null)
             {
-                var cairoZone = await context.ShippingZones.FirstAsync(z => z.CountryId == egypt.Id && z.CityId == cairo.Id);
-                var freeExists = await context.ShippingMethods
-                    .Include(m => m.Zones)
-                    .AnyAsync(m => m.Cost == 0 && m.FreeShippingThreshold == 0 && m.Zones.Any(z => z.Id == cairoZone.Id));
-
-                if (!freeExists)
+                var cairoZone = await context.ShippingZones.FirstOrDefaultAsync(z => z.CountryId == egypt.Id && z.CityId == cairo.Id);
+                if (cairoZone != null)
                 {
-                    var freeMethod = new ShippingMethod
+                    var freeExists = await context.ShippingMethods
+                        .Include(m => m.Zones)
+                        .AnyAsync(m => m.Cost == 0 && m.FreeShippingThreshold == 0 && m.Zones.Any(z => z.Id == cairoZone.Id));
+
+                    if (!freeExists)
                     {
-                        Cost = 0,
-                        CostType = ShippingCostType.Flat,
-                        EstimatedTime = "1-3 days",
-                        IsDefault = true,
-                        FreeShippingThreshold = 0
-                    };
-                    freeMethod.Zones.Add(cairoZone);
-                    context.ShippingMethods.Add(freeMethod);
-                    await context.SaveChangesAsync();
+                        var freeMethod = new ShippingMethod
+                        {
+                            Cost = 0,
+                            CostType = ShippingCostType.Flat,
+                            EstimatedTime = "1-3 days",
+                            IsDefault = true,
+                            FreeShippingThreshold = 0
+                        };
+                        freeMethod.Zones.Add(cairoZone);
+                        context.ShippingMethods.Add(freeMethod);
+                        await context.SaveChangesAsync();
+                    }
                 }
             }
         }
@@ -234,25 +277,51 @@ public static class AppDbContextSeed
     {
         if (customerId == null) return;
 
+        // Ensure cities exist to prevent FK_UserAddresses_Cities_CityId failures
+        var anyCity = await context.Cities.FirstOrDefaultAsync();
+        if (anyCity == null) return; // cities not seeded yet
+
         var existingCount = await context.UserAddresses.CountAsync(a => a.UserId == customerId);
         if (existingCount >= 3) return;
 
-        var egypt = await context.Countries.FirstOrDefaultAsync(c => c.NameEn == "Egypt");
-        if (egypt is null) return;
+        // Instead of relying on specific names (which may not exist if JSON changed),
+        // pick first three distinct cities deterministically
+        var cities = await context.Cities
+            .OrderBy(c => c.NameEn)
+            .Take(3)
+            .ToListAsync();
 
-        var cairo = await context.Cities.FirstOrDefaultAsync(c => c.NameEn == "Cairo" && c.CountryId == egypt.Id)
-                    ?? await context.Cities.FirstOrDefaultAsync(c => c.CountryId == egypt.Id);
-        var alex = await context.Cities.FirstOrDefaultAsync(c => c.NameEn == "Alexandria" && c.CountryId == egypt.Id) ?? cairo;
-        var giza = await context.Cities.FirstOrDefaultAsync(c => c.NameEn == "Giza" && c.CountryId == egypt.Id) ?? cairo;
+        if (cities.Count == 0) return;
 
-        if (cairo is null || alex is null || giza is null) return;
-
-        var addresses = new List<UserAddress>
+        var addresses = new List<UserAddress>();
+        for (int i = 0; i < cities.Count; i++)
         {
-            new UserAddress { UserId = customerId, FullName = "Customer Home", CityId = cairo.Id, Street = "123 Nile Corniche", MobileNumber = "+201001112223", HouseNo = "Bldg 5", IsDefault = true },
-            new UserAddress { UserId = customerId, FullName = "Customer Work", CityId = alex.Id, Street = "45 Port Gate Street", MobileNumber = "+201001112224", HouseNo = "Suite 12A", IsDefault = false },
-            new UserAddress { UserId = customerId, FullName = "Customer Warehouse", CityId = giza.Id, Street = "Industrial Zone 7", MobileNumber = "+201001112225", HouseNo = "Warehouse 3", IsDefault = false }
-        };
+            addresses.Add(new UserAddress
+            {
+                UserId = customerId,
+                FullName = i switch
+                {
+                    0 => "Customer Home",
+                    1 => "Customer Work",
+                    _ => "Customer Warehouse"
+                },
+                CityId = "2838964F-066F-45BE-A86B-85E399EBD945".ToString().ToGuid(),
+                Street = i switch
+                {
+                    0 => "123 Nile Corniche",
+                    1 => "45 Port Gate Street",
+                    _ => "Industrial Zone 7"
+                },
+                MobileNumber = $"+20100111222{i + 3}",
+                HouseNo = i switch
+                {
+                    0 => "Bldg 5",
+                    1 => "Suite 12A",
+                    _ => "Warehouse 3"
+                },
+                IsDefault = i == 0
+            });
+        }
 
         context.UserAddresses.AddRange(addresses);
         await context.SaveChangesAsync();
@@ -711,6 +780,106 @@ public static class AppDbContextSeed
 
         context.Faqs.AddRange(faqs);
         await context.SaveChangesAsync();
+    }
+
+    private static async Task SeedSampleOrdersAsync(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
+    {
+        var existing = await context.Orders.CountAsync();
+        if (existing >= 20) return;
+
+        // Ensure prerequisite data exists: addresses & products
+        var address = await context.UserAddresses.AsNoTracking().FirstOrDefaultAsync();
+        var method = await context.ShippingMethods.AsNoTracking().FirstOrDefaultAsync();
+        var products = await context.Products.AsNoTracking().Take(80).ToListAsync();
+        if (products.Count == 0) return;
+
+        var users = await userManager.Users
+            .OrderBy(u => u.Email)
+            .Take(5)
+            .ToListAsync();
+        if (users.Count == 0) return;
+
+        var rnd = new Random(9251);
+        var need = 20 - existing;
+        var now = DateTimeOffset.UtcNow;
+
+        var orderStatusValues = new[] { 1, 2, 3, 4, 5, 6, 7 }; // Pending..Delivered
+        var paymentStatusValues = new[] { 1, 2, 2, 2, 3, 4 };
+
+        var orders = new List<Order>();
+
+        for (int i = 0; i < need; i++)
+        {
+            var user = users[i % users.Count];
+            var daysAgo = rnd.Next(0, 180);
+            var created = now.AddDays(-daysAgo).AddMinutes(-rnd.Next(0, 1440));
+
+            var order = new Order
+            {
+                OrderNumber = $"ORD-{created.UtcDateTime:yyyyMMdd}-{(existing + i + 1):D4}",
+                UserId = user.Id,
+                CustomerEmail = user.Email ?? "customer@shop.com",
+                CustomerName = user.FullName ?? "Customer",
+                ShippingAddressId = "9D55A2E0-88FA-4CED-B310-06ACFF59ABE0".ToString().ToGuid(),      // nullable: remains null if no address available
+                ShippingMethodId = method?.Id,
+                TrackingNumber = $"TRK-{Guid.NewGuid():N}".Substring(0, 12),
+                Notes = daysAgo % 11 == 0 ? "Seed sample order." : null,
+                CreatedDate = created,
+                CreatedBy = user.Id
+            };
+
+            SetEnumByUnderlyingValue(order, nameof(Order.Status), orderStatusValues[rnd.Next(orderStatusValues.Length)]);
+            SetEnumByUnderlyingValue(order, nameof(Order.PaymentStatus), paymentStatusValues[rnd.Next(paymentStatusValues.Length)]);
+
+            var itemsCount = rnd.Next(1, 5);
+            decimal subTotal = 0m, discountTotal = 0m, taxTotal = 0m;
+
+            for (int li = 0; li < itemsCount; li++)
+            {
+                var p = products[rnd.Next(products.Count)];
+                var qty = rnd.Next(1, 5);
+                var unitPrice = p.Price;
+                var lineDisc = rnd.Next(0, 5) == 0 ? Math.Round(unitPrice * 0.1m, 2) : 0m;
+                var lineTax = Math.Round(unitPrice * 0.14m, 2);
+
+                subTotal += unitPrice * qty;
+                discountTotal += lineDisc * qty;
+                taxTotal += lineTax * qty;
+
+                order.Items.Add(new OrderItem
+                {
+                    ProductId = p.Id,
+                    UnitPrice = unitPrice,
+                    Quantity = qty,
+                    Discount = lineDisc,
+                    Tax = lineTax,
+                    CreatedDate = created,
+                    CreatedBy = user.Id
+                });
+            }
+
+            var shippingTotal = subTotal >= 1000m ? 0m : 50m;
+            var total = subTotal - discountTotal + taxTotal + shippingTotal;
+
+            order.SubTotal = Math.Round(subTotal, 2);
+            order.DiscountTotal = Math.Round(discountTotal, 2);
+            order.TaxTotal = Math.Round(taxTotal, 2);
+            order.ShippingTotal = Math.Round(shippingTotal, 2);
+            order.Total = Math.Round(total, 2);
+
+            orders.Add(order);
+        }
+
+        await context.Orders.AddRangeAsync(orders);
+        await context.SaveChangesAsync();
+    }
+
+    private static void SetEnumByUnderlyingValue(object target, string propertyName, int value)
+    {
+        var prop = target.GetType().GetProperty(propertyName);
+        if (prop is null || !prop.PropertyType.IsEnum) return;
+        var enumValue = Enum.ToObject(prop.PropertyType, value);
+        prop.SetValue(target, enumValue);
     }
 
     #region JSON DTOs

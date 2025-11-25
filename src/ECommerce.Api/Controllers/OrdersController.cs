@@ -19,9 +19,9 @@ public class OrdersController : ControllerBase
 
 
     [HttpGet("me")]
-    public async Task<IActionResult> MyOrders([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 20)
+    public async Task<IActionResult> MyOrders([FromQuery] GetMyOrdersQuery getMyOrdersQuery)
     {
-        var result = await _mediator.Send(new GetMyOrdersQuery(pageNumber, pageSize));
+        var result = await _mediator.Send(getMyOrdersQuery);
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }
     [HttpPost("checkout")]
