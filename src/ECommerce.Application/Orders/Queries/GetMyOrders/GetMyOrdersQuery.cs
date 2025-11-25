@@ -15,7 +15,6 @@ public class GetMyOrdersQuery : BaseFilterDto, IRequest<Result<PagedResult<Order
 {
     public string? OrderNumber { get; set; }
     public int? Status { get; set; }            // underlying int of OrderStatus
-    public int? PaymentStatus { get; set; }     // underlying int of PaymentStatus
     public DateTimeOffset? From { get; set; }
     public DateTimeOffset? To { get; set; }
     public decimal? MinTotal { get; set; }

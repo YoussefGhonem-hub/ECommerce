@@ -30,12 +30,6 @@ public static class OrderQueryExtensions
             query = query.Where(o => (int)o.Status == statusInt);
         }
 
-        if (filter.PaymentStatus.HasValue)
-        {
-            var payInt = filter.PaymentStatus.Value;
-            query = query.Where(o => (int)o.PaymentStatus == payInt);
-        }
-
         if (filter.From.HasValue)
         {
             var from = filter.From.Value;
