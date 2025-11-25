@@ -8,8 +8,21 @@ using System.Security.Claims;
 
 namespace ECommerce.Application.Orders.Queries.GetMyOrders;
 
-public record GetMyOrdersQuery(int PageNumber = 1, int PageSize = 20)
-    : IRequest<Result<PagedResult<OrderDto>>>;
+// Added filter properties
+public record GetMyOrdersQuery(
+    int PageNumber = 1,
+    int PageSize = 20,
+    string? OrderNumber = null,
+    int? Status = null,            // OrderStatus enum underlying int
+    int? PaymentStatus = null,     // PaymentStatus enum underlying int
+    DateTimeOffset? From = null,   // CreatedDate >= From
+    DateTimeOffset? To = null,     // CreatedDate <= To
+    decimal? MinTotal = null,
+    decimal? MaxTotal = null,
+    Guid? ProductId = null,        // any item with this ProductId
+    Guid? CategoryId = null,       // any item whose product.CategoryId == CategoryId
+    string? Search = null          // fuzzy search in OrderNumber OR TrackingNumber
+) : IRequest<Result<PagedResult<OrderDto>>>;
 
 public class GetMyOrdersQueryHandler : IRequestHandler<GetMyOrdersQuery, Result<PagedResult<OrderDto>>>
 {
@@ -28,68 +41,62 @@ public class GetMyOrdersQueryHandler : IRequestHandler<GetMyOrdersQuery, Result<
             return Result<PagedResult<OrderDto>>.Failure("Not authenticated.");
 
         var isAdmin = CurrentUser.Roles.Contains("Admin");
-        var isCustomer = CurrentUser.Roles.Contains("Customer");
-
         IQueryable<Domain.Entities.Order> baseQuery;
 
         if (isAdmin)
         {
-            // Orders containing at least one item whose product belongs to this admin (seller perspective)
+            // Admin (seller): orders that contain at least one item whose product belongs to this admin
             baseQuery = _context.Orders
                 .AsNoTracking()
                 .Where(o =>
                     o.Items.Any(i =>
                         i.Product != null &&
                         i.Product.UserId != null &&
-                        i.Product.UserId == CurrentUser.Id))
-                .OrderByDescending(o => o.CreatedDate);
+                        i.Product.UserId == CurrentUser.Id));
         }
         else
         {
             // Customer: own orders only
             baseQuery = _context.Orders
                 .AsNoTracking()
-                .Where(o => o.UserId == CurrentUser.Id)
-                .OrderByDescending(o => o.CreatedDate);
+                .Where(o => o.UserId == CurrentUser.Id);
         }
 
+        // Apply dynamic filters via extension
+        baseQuery = baseQuery.ApplyOrderFilters(request);
+
+        // Consistent ordering
+        baseQuery = baseQuery.OrderByDescending(o => o.CreatedDate);
+
+        // Pagination
         var total = await baseQuery.CountAsync(cancellationToken);
 
         var items = await baseQuery
-            .Skip((request.PageNumber - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .Include(o => o.Items)
-                .ThenInclude(i => i.Product)
-            .Include(o => o.Items)
-                .ThenInclude(i => i.Attributes)
-            .Include(o => o.ShippingAddress)
-                .ThenInclude(a => a.City)
-                    .ThenInclude(c => c.Country)
+            .Skip((request.PageNumber <= 0 ? 0 : (request.PageNumber - 1)) * (request.PageSize <= 0 ? 20 : request.PageSize))
+            .Take(request.PageSize <= 0 ? 20 : request.PageSize)
+            .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.Items).ThenInclude(i => i.Attributes)
+            .Include(o => o.ShippingAddress).ThenInclude(a => a.City).ThenInclude(c => c.Country)
             .Include(o => o.ShippingMethod)
             .Select(o => new OrderDto
             {
                 Id = o.Id,
                 OrderNumber = o.OrderNumber,
-
                 SubTotal = o.SubTotal,
                 DiscountTotal = o.DiscountTotal,
                 TaxTotal = o.TaxTotal,
                 ShippingTotal = o.ShippingTotal,
                 Total = o.Total,
-
                 Status = o.Status.ToString(),
                 PaymentStatus = (int)o.PaymentStatus,
-
                 ShippingAddressId = o.ShippingAddressId,
                 ShippingMethodId = o.ShippingMethodId,
                 ShippingMethodName = o.ShippingMethod != null ? o.ShippingMethod.CostType.ToString() : null,
                 ShippingEstimatedTime = o.ShippingMethod != null ? o.ShippingMethod.EstimatedTime : null,
-
                 CouponCode = o.CouponCode,
                 TrackingNumber = o.TrackingNumber,
                 Notes = o.Notes,
                 CreatedDate = o.CreatedDate,
-
                 ShippingAddress = o.ShippingAddress != null && o.ShippingAddress.City != null && o.ShippingAddress.City.Country != null
                     ? new OrderAddressDto
                     {
@@ -106,7 +113,6 @@ public class GetMyOrdersQueryHandler : IRequestHandler<GetMyOrdersQuery, Result<
                         HouseNo = o.ShippingAddress.HouseNo
                     }
                     : null,
-
                 Items = o.Items.Select(i => new OrderItemDto
                 {
                     ProductId = i.ProductId,
