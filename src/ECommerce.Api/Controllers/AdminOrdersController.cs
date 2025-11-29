@@ -17,10 +17,10 @@ public class AdminOrdersController : ControllerBase
         _mediator = mediator;
     }
 
-    [HttpPost("{id:guid}/status")]
-    public async Task<IActionResult> UpdateStatus(Guid id, [FromBody] UpdateOrderStatusCommand request)
+    [HttpPut("status")]
+    public async Task<IActionResult> UpdateStatus([FromBody] UpdateOrderStatusCommand request)
     {
-        var result = await _mediator.Send(new UpdateOrderStatusCommand(id, request.Status));
+        var result = await _mediator.Send(request);
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 }
