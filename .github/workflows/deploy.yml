@@ -1,4 +1,4 @@
-name: FTP Deploy
+name: FTP Deploy (Self-contained)
 
 on:
   push:
@@ -24,15 +24,17 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
-      - name: Publish
-        run: dotnet publish src/ECommerce.Api/ECommerce.Api.csproj --configuration Release --output ./publish
+      - name: Publish self-contained (win-x64, single-file)
+        run: |
+          dotnet publish src/ECommerce.Api/ECommerce.Api.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o ./publish/win-x64
+          ls -la ./publish/win-x64
 
       - name: Create app_offline.htm to stop app
         run: |
           mkdir -p offline
           printf '%s\n' '<!doctype html><html><head><meta charset="utf-8"><title>Maintenance</title></head><body><h1>Site under maintenance</h1></body></html>' > offline/app_offline.htm
 
-      - name: Upload app_offline.htm (stop site, release file locks)
+      - name: Upload app_offline.htm (release file locks)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
           local-dir: ./offline/
@@ -47,10 +49,10 @@ jobs:
       - name: Wait for app to stop
         run: sleep 8
 
-      - name: FTP Deploy (publish output)
+      - name: FTP Deploy self-contained build
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
-          local-dir: ./publish/
+          local-dir: ./publish/win-x64/
           server: win6054.site4now.net
           username: amrsherif-002
           password: "@mrSherif2"
@@ -58,6 +60,7 @@ jobs:
           port: 21
           passive: true
           server-dir: /e-commerce/
+          dangerous-clean-slate: true     # removes app_offline.htm and stale files not in ./publish
           exclude: |
             **/.git*
             **/.github/**
@@ -66,4 +69,3 @@ jobs:
             **/*.ps1
             **/*.sh
             **/*.yml
-            **/app_offline.htm
