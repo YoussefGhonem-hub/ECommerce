@@ -34,7 +34,7 @@ jobs:
           server: ftp://win6054.site4now.net:21
           username: amrsherif-002
           password: "@mrSherif2"
-          server-dir: /ECommerceAPI
+          server-dir: /ECommerceAPI/
           exclude: |
             **/.git*
             **/.github/**
