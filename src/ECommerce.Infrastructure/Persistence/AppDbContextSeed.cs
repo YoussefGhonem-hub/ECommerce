@@ -305,7 +305,7 @@ public static class AppDbContextSeed
                     1 => "Customer Work",
                     _ => "Customer Warehouse"
                 },
-                CityId = "2838964F-066F-45BE-A86B-85E399EBD945".ToString().ToGuid(),
+                CityId = anyCity.Id.ToString().ToGuid(),
                 Street = i switch
                 {
                     0 => "123 Nile Corniche",
@@ -820,7 +820,7 @@ public static class AppDbContextSeed
                 UserId = user.Id,
                 CustomerEmail = user.Email ?? "customer@shop.com",
                 CustomerName = user.FullName ?? "Customer",
-                ShippingAddressId = "9D55A2E0-88FA-4CED-B310-06ACFF59ABE0".ToString().ToGuid(),      // nullable: remains null if no address available
+                ShippingAddressId = address.Id.ToString().ToGuid(),      // nullable: remains null if no address available
                 ShippingMethodId = method?.Id,
                 TrackingNumber = $"TRK-{Guid.NewGuid():N}".Substring(0, 12),
                 Notes = daysAgo % 11 == 0 ? "Seed sample order." : null,
