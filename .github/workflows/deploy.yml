@@ -30,10 +30,13 @@ jobs:
       - name: FTP Deploy
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
-          local-dir: ./publish/     # must end with a trailing slash
-          server: ftp://win6054.site4now.net:21
+          local-dir: ./publish/
+          server: win6054.site4now.net
           username: amrsherif-002
           password: "@mrSherif2"
+          protocol: ftp
+          port: 21
+          passive: true
           server-dir: /ECommerceAPI/
           exclude: |
             **/.git*
