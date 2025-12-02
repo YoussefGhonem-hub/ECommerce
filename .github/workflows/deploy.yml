@@ -13,7 +13,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Build & publish .NET 8 artifacts
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -34,7 +33,7 @@ jobs:
           local-dir: ./publish
           server: ftp://win6054.site4now.net:21
           username: amrsherif-002
-          password: ${{ secrets.FTP_PASSWORD }}
+          password: "@mrSherif2"
           server-dir: /dubaidashbord
           exclude: |
             **/.git*
