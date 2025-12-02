@@ -37,7 +37,7 @@ jobs:
           protocol: ftp
           port: 21
           passive: true
-          server-dir: /ECommerceAPI/
+          server-dir: /e-commerce
           exclude: |
             **/.git*
             **/.github/**
