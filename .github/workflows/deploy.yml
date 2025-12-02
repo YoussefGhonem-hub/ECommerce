@@ -27,7 +27,27 @@ jobs:
       - name: Publish
         run: dotnet publish src/ECommerce.Api/ECommerce.Api.csproj --configuration Release --output ./publish
 
-      - name: FTP Deploy
+      - name: Create app_offline.htm to stop app
+        run: |
+          mkdir -p offline
+          printf '%s\n' '<!doctype html><html><head><meta charset="utf-8"><title>Maintenance</title></head><body><h1>Site under maintenance</h1></body></html>' > offline/app_offline.htm
+
+      - name: Upload app_offline.htm (stop site, release file locks)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+        with:
+          local-dir: ./offline/
+          server: win6054.site4now.net
+          username: amrsherif-002
+          password: "@mrSherif2"
+          protocol: ftp
+          port: 21
+          passive: true
+          server-dir: /e-commerce/
+
+      - name: Wait for app to stop
+        run: sleep 8
+
+      - name: FTP Deploy (publish output)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
           local-dir: ./publish/
@@ -46,3 +66,4 @@ jobs:
             **/*.ps1
             **/*.sh
             **/*.yml
+            **/app_offline.htm
