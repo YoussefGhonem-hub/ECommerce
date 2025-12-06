@@ -7,10 +7,7 @@ on:
 
 jobs:
   deploy:
-    # Option A: GitHub-hosted Windows
     runs-on: windows-latest
-    # Option B: self-hosted runner (uncomment below and comment windows-latest)
-    # runs-on: self-hosted
 
     steps:
       - name: Checkout
@@ -28,16 +25,20 @@ jobs:
         run: dotnet build --configuration Release --no-restore
 
       - name: Publish self-contained (win-x86)
+        shell: pwsh
         run: |
           dotnet publish src/ECommerce.Api/ECommerce.Api.csproj -c Release -r win-x86 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o ./publish/win-x86
-          if [ -f src/ECommerce.Api/web.config ]; then
-            cp src/ECommerce.Api/web.config ./publish/win-x86/web.config
-          fi
+          if (Test-Path "src/ECommerce.Api/web.config") {
+            Copy-Item "src/ECommerce.Api/web.config" -Destination "./publish/win-x86/web.config" -Force
+          }
+          Get-ChildItem "./publish/win-x86" -Force
 
       - name: Create app_offline.htm to stop app
+        shell: pwsh
         run: |
-          mkdir -p offline
-          printf '%s\n' '<!doctype html><html><head><meta charset="utf-8"><title>Maintenance</title></head><body><h1>Site under maintenance</h1></body></html>' > offline/app_offline.htm
+          New-Item -ItemType Directory -Path "./offline" -Force | Out-Null
+          $html = '<!doctype html><html><head><meta charset="utf-8"><title>Maintenance</title></head><body><h1>Site under maintenance</h1></body></html>'
+          Set-Content -Path "./offline/app_offline.htm" -Value $html -Encoding UTF8
 
       - name: Upload app_offline.htm (release file locks)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
@@ -50,6 +51,10 @@ jobs:
           port: 21
           passive: true
           server-dir: /e-commerce/
+
+      - name: Wait for app to stop
+        shell: pwsh
+        run: Start-Sleep -Seconds 8
 
       - name: FTP Deploy self-contained build (win-x86)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
