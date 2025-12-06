@@ -430,11 +430,11 @@ public static class AppDbContextSeed
     private static async Task SeedProductAttributesForTShirtsAsync(ApplicationDbContext context, Guid? adminId)
     {
         var colorAttr = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Color")
-                        ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Color" })).Entity;
+                        ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Color", CreatedBy = adminId.Value })).Entity;
         var sizeAttr = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Size")
-                       ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Size" })).Entity;
+                       ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Size", CreatedBy = adminId.Value })).Entity;
         var materialAttr = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Material")
-                           ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Material" })).Entity;
+                           ?? (await context.ProductAttributes.AddAsync(new ProductAttribute { Name = "Material", CreatedBy = adminId.Value })).Entity;
 
         await context.SaveChangesAsync();
 
