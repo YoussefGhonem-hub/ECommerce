@@ -1,4 +1,4 @@
-name: FTP Deploy (Self-contained 32-bit)
+name: Deploy on deploy branch
 
 on:
   push:
@@ -6,9 +6,8 @@ on:
       - deploy
 
 jobs:
-  deploy:
+  build-and-publish:
     runs-on: windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,63 +15,82 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: 8.0.x
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore "**/*.sln"
 
       - name: Build
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build "**/*.sln" --configuration Release --no-restore
 
-      - name: Publish self-contained (win-x86)
-        shell: pwsh
-        run: |
-          dotnet publish src/ECommerce.Api/ECommerce.Api.csproj -c Release -r win-x86 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o ./publish/win-x86
-          if (Test-Path "src/ECommerce.Api/web.config") {
-            Copy-Item "src/ECommerce.Api/web.config" -Destination "./publish/win-x86/web.config" -Force
-          }
-          Get-ChildItem "./publish/win-x86" -Force
+      - name: Publish (framework-dependent)
+        run: dotnet publish "**/*.csproj" --configuration Release --output "${{ github.workspace }}\\publish"
 
-      - name: Create app_offline.htm to stop app
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path "./offline" -Force | Out-Null
-          $html = '<!doctype html><html><head><meta charset="utf-8"><title>Maintenance</title></head><body><h1>Site under maintenance</h1></body></html>'
-          Set-Content -Path "./offline/app_offline.htm" -Value $html -Encoding UTF8
 
-      - name: Upload app_offline.htm (release file locks)
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+  deploy-msdeploy:
+    needs: build-and-publish
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download published artifact
+        uses: actions/download-artifact@v4
         with:
-          local-dir: ./offline/
+          name: published-output
+          path: publish
+
+      - name: Verify msdeploy is available
+        shell: pwsh
+        run: |
+          $paths = @(
+            "$env:ProgramFiles\\IIS\\Microsoft Web Deploy V3\\msdeploy.exe",
+            "$env:ProgramFiles(x86)\\IIS\\Microsoft Web Deploy V3\\msdeploy.exe"
+          )
+          $msdeploy = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $msdeploy) { throw "msdeploy.exe not found." }
+          Write-Host "Using msdeploy: $msdeploy"
+          echo "MSDEPLOY_PATH=$msdeploy" >> $env:GITHUB_ENV
+
+      - name: Deploy using MSDeploy
+        shell: pwsh
+        run: |
+          $src = "contentPath=`"$(Resolve-Path './publish')`""
+          $dest = "auto,ComputerName=`"https://win6054.site4now.net:8172/msdeploy.axd?site=amrsherif-002-site4`",UserName=`"amrsherif-002`",Password=`"@mrSherif2`",AuthType=`"Basic`",includeAcls=`"False`""
+          & "$env:MSDEPLOY_PATH" `
+            -verb:sync `
+            -source:$src `
+            -dest:$dest `
+            -enableRule:DoNotDelete `
+            -allowUntrusted `
+            -setParam:name="IisApp",value="amrsherif-002-site4"
+
+  deploy-ftp:
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download published artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: published-output
+          path: publish
+
+      - name: Deploy using FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
           server: win6054.site4now.net
           username: amrsherif-002
           password: "@mrSherif2"
-          protocol: ftp
+          protocol: ftps
           port: 21
-          passive: true
+          local-dir: publish
           server-dir: /e-commerce/
-
-      - name: Wait for app to stop
-        shell: pwsh
-        run: Start-Sleep -Seconds 8
-
-      - name: FTP Deploy self-contained build (win-x86)
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
-        with:
-          local-dir: ./publish/win-x86/
-          server: win6054.site4now.net
-          username: amrsherif-002
-          password: "@mrSherif2"
-          protocol: ftp
-          port: 21
-          passive: true
-          server-dir: /e-commerce/
-          dangerous-clean-slate: true
+          timeout: 120000
           exclude: |
-            **/.git*
-            **/.github/**
-            **/node_modules/**
-            **/*.md
-            **/*.ps1
-            **/*.sh
-            **/*.yml
+            **/.git**
+            **/.github**
+            **/*.pdb
+            **/*.xml
