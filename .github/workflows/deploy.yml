@@ -111,7 +111,7 @@ jobs:
           password: "@mrSherif2"
           protocol: ftps
           port: 21
-          local-dir: publish
+          local-dir: /publish/
           server-dir: /e-commerce/
           timeout: 120000
           exclude: |
