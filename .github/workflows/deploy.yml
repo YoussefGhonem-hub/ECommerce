@@ -17,15 +17,40 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Find solution or project
+        shell: pwsh
+        run: |
+          $sln = Get-ChildItem -Path . -Recurse -Filter *.sln | Select-Object -First 1
+          if ($null -ne $sln) {
+            Write-Host "Found solution: $($sln.FullName)"
+            echo "BUILD_TARGET=$($sln.FullName)" >> $env:GITHUB_ENV
+          } else {
+            $proj = Get-ChildItem -Path . -Recurse -Filter *.csproj | Select-Object -First 1
+            if ($null -eq $proj) { throw "No .sln or .csproj found." }
+            Write-Host "Found project: $($proj.FullName)"
+            echo "BUILD_TARGET=$($proj.FullName)" >> $env:GITHUB_ENV
+          }
+          $pub = Join-Path $pwd "publish"
+          New-Item -ItemType Directory -Force -Path $pub | Out-Null
+          echo "PUBLISH_DIR=$pub" >> $env:GITHUB_ENV
+
       - name: Restore
-        run: dotnet restore "**/*.sln"
+        shell: pwsh
+        run: dotnet restore "$env:BUILD_TARGET"
 
       - name: Build
-        run: dotnet build "**/*.sln" --configuration Release --no-restore
+        shell: pwsh
+        run: dotnet build "$env:BUILD_TARGET" --configuration Release --no-restore
 
       - name: Publish (framework-dependent)
-        run: dotnet publish "**/*.csproj" --configuration Release --output "${{ github.workspace }}\\publish"
+        shell: pwsh
+        run: dotnet publish "$env:BUILD_TARGET" --configuration Release --output "$env:PUBLISH_DIR"
 
+      - name: Upload published artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-output
+          path: publish
 
   deploy-msdeploy:
     needs: build-and-publish
