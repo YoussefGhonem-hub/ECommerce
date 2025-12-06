@@ -1,12 +1,14 @@
-using ECommerce.Domain.Entities;
+using ECommerce.Application.Common;
+using ECommerce.Application.Products.Queries.GetProductById;
 using ECommerce.Infrastructure.Persistence;
 using MediatR;
-using System.Data.Entity;
+using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Application.Reviews.Queries;
 
-public record GetProductReviewsQuery(Guid ProductId) : IRequest<List<ProductReview>>;
-public class GetProductReviewsHandler : IRequestHandler<GetProductReviewsQuery, List<ProductReview>>
+public record GetProductReviewsQuery(Guid ProductId) : IRequest<Result<List<ProductReviewDto>>>;
+
+public class GetProductReviewsHandler : IRequestHandler<GetProductReviewsQuery, Result<List<ProductReviewDto>>>
 {
     private readonly ApplicationDbContext _context;
 
@@ -15,11 +17,21 @@ public class GetProductReviewsHandler : IRequestHandler<GetProductReviewsQuery, 
         _context = context;
     }
 
-    public async Task<List<ProductReview>> Handle(GetProductReviewsQuery request, CancellationToken cancellationToken)
+    public async Task<Result<List<ProductReviewDto>>> Handle(GetProductReviewsQuery request, CancellationToken cancellationToken)
     {
-        return await _context.ProductReviews
-            .Where(r => r.ProductId == request.ProductId)
+        var reviews = await _context.ProductReviews
+            .Where(r => r.ProductId == request.ProductId && r.IsApproved)
             .OrderByDescending(r => r.CreatedDate)
+            .Select(r => new ProductReviewDto
+            {
+                Id = r.Id,
+                Rating = r.Rating,
+                Comment = r.Comment,
+                CreatedDate = r.CreatedDate,
+                UserFullName = r.User.FullName
+            })
             .ToListAsync(cancellationToken);
+
+        return Result<List<ProductReviewDto>>.Success(reviews);
     }
 }

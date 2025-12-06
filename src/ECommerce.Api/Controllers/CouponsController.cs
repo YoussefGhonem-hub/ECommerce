@@ -1,5 +1,4 @@
 using ECommerce.Application.Coupons.Commands;
-using ECommerce.Application.Coupons.Queries.GetCouponById;
 using ECommerce.Application.Coupons.Queries.ListCouponsQuery;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -20,9 +19,9 @@ public class CouponsController : ControllerBase
     // GET: api/coupons
     // Optional filters: userId, isActive
     [HttpGet]
-    public async Task<IActionResult> List([FromQuery] Guid? userId, [FromQuery] bool? isActive, CancellationToken ct)
+    public async Task<IActionResult> List([FromQuery] ListCouponsQuery dto, CancellationToken ct)
     {
-        var result = await _mediator.Send(new ListCouponsQuery(userId, isActive), ct);
+        var result = await _mediator.Send(dto, ct);
         return result.Succeeded
             ? Ok(result)
             : BadRequest(result);
@@ -32,10 +31,8 @@ public class CouponsController : ControllerBase
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById([FromRoute] Guid id, CancellationToken ct)
     {
-        var result = await _mediator.Send(new GetCouponByIdQuery(id), ct);
-        return result.Succeeded
-            ? Ok(result)
-            : BadRequest(result);
+        var result = await _mediator.Send(new DeleteCouponCommand(id), ct);
+        return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 
     // POST: api/coupons

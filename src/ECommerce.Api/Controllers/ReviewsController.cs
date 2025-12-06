@@ -26,10 +26,9 @@ public class ReviewsController : ControllerBase
 
     [HttpPost]
     [Authorize]
-    public async Task<IActionResult> Add(AddReviewRequest request)
+    public async Task<IActionResult> Add(AddReviewCommand request)
     {
-        var userId = User.FindFirst("uid")!.Value;
-        var result = await _mediator.Send(new AddReviewCommand(userId, request.ProductId, request.Rating, request.Comment));
+        var result = await _mediator.Send(request);
         return result.Succeeded ? Ok(result) : BadRequest(result);
     }
 
@@ -43,4 +42,4 @@ public class ReviewsController : ControllerBase
     }
 }
 
-public record AddReviewRequest(Guid ProductId, int Rating, string? Comment);
+

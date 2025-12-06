@@ -1,12 +1,13 @@
 using ECommerce.Application.Common;
 using ECommerce.Domain.Entities;
 using ECommerce.Infrastructure.Persistence;
+using ECommerce.Shared.CurrentUser;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Application.Reviews.Commands;
 
-public record AddReviewCommand(string UserId, Guid ProductId, int Rating, string? Comment) : IRequest<Result<bool>>;
+public record AddReviewCommand(Guid ProductId, int Rating, string? Comment) : IRequest<Result<bool>>;
 
 public class AddReviewHandler : IRequestHandler<AddReviewCommand, Result<bool>>
 {
@@ -26,13 +27,13 @@ public class AddReviewHandler : IRequestHandler<AddReviewCommand, Result<bool>>
 
         // user can update own review for same product
         var existing = await _context.ProductReviews
-            .FirstOrDefaultAsync(r => r.UserId == request.UserId && r.ProductId == request.ProductId, cancellationToken);
+            .FirstOrDefaultAsync(r => r.UserId == CurrentUser.UserId && r.ProductId == request.ProductId, cancellationToken);
 
         if (existing is null)
         {
             _context.ProductReviews.Add(new ProductReview
             {
-                UserId = request.UserId,
+                UserId = CurrentUser.UserId,
                 ProductId = request.ProductId,
                 Rating = request.Rating,
                 Comment = request.Comment
