@@ -47,6 +47,9 @@ public class CartItemDto
 
     // NEW: All available attribute/value options for this product
     public List<CartItemAttributeDto> ProductAttributes { get; set; } = new();
+
+    public List<string> ImageUrls { get; set; } = new();
+
 }
 
 public class CartItemAttributeDto
@@ -69,3 +72,4 @@ public class ShippingMethodSummaryDto
     public bool FreeShippingApplied { get; set; }
     public decimal CalculatedCostWithoutFree { get; set; }
 }
+

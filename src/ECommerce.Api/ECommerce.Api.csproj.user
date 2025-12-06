@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
-    <NameOfLastUsedPublishProfile>E:\Projects\Me\Ecommerce\ecommerce-backend\.github\workflows\deploy.yml</NameOfLastUsedPublishProfile>
+    <NameOfLastUsedPublishProfile>E:\Projects\Me\Ecommerce\ecommerce-backend\src\ECommerce.Api\Properties\PublishProfiles\amrsherif-002-site4 - Web Deploy.pubxml</NameOfLastUsedPublishProfile>
   </PropertyGroup>
 </Project>

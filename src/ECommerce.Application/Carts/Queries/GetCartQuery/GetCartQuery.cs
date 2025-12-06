@@ -103,6 +103,7 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
         foreach (var itemEntity in cartEntity.Items)
         {
             var dto = cartDto.Items.First(i => i.Id == itemEntity.Id);
+
             dto.SelectedAttributes = itemEntity.Attributes
                 .Select(a => new CartItemAttributeDto
                 {
@@ -112,6 +113,12 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
                     Value = a.ProductAttributeValue?.Value
                 })
                 .ToList();
+
+            // NEW: Map all product images (URLs) for this cart item
+            dto.ImageUrls = itemEntity.Product?.Images?
+                .Select(img => img.Path)           // adjust property name if different (e.g., Path)
+                .Where(url => !string.IsNullOrWhiteSpace(url))
+                .ToList() ?? new List<string>();
         }
 
         // Load all product attribute mappings (available options) once
@@ -142,10 +149,9 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, Result<Checkout
         // Assign available attribute options per product (without overwriting selected line attributes)
         foreach (var item in cartDto.Items)
         {
-            if (byProduct.TryGetValue(item.ProductId, out var attrs))
-                item.ProductAttributes = attrs;
-            else
-                item.ProductAttributes = new List<CartItemAttributeDto>();
+            item.ProductAttributes = byProduct.TryGetValue(item.ProductId, out var attrs)
+                ? attrs
+                : new List<CartItemAttributeDto>();
         }
 
         return cartDto;
