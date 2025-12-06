@@ -80,15 +80,14 @@ jobs:
       - name: Deploy using MSDeploy
         shell: pwsh
         run: |
-          $src = "contentPath=`"$(Resolve-Path './publish')`""
-          $dest = "auto,ComputerName=`"https://win6054.site4now.net:8172/msdeploy.axd?site=amrsherif-002-site4`",UserName=`"amrsherif-002`",Password=`"@mrSherif2`",AuthType=`"Basic`",includeAcls=`"False`""
-          & "$env:MSDEPLOY_PATH" `
+          $publishPath = (Resolve-Path "./publish").Path
+          & $env:MSDEPLOY_PATH `
             -verb:sync `
-            -source:$src `
-            -dest:$dest `
+            -source:contentPath=$publishPath `
+            -dest:auto,ComputerName=https://win6054.site4now.net:8172/msdeploy.axd?site=amrsherif-002-site4,UserName=amrsherif-002,Password=@mrSherif2,AuthType=Basic,includeAcls=False `
             -enableRule:DoNotDelete `
             -allowUntrusted `
-            -setParam:name="IisApp",value="amrsherif-002-site4"
+            -setParam:name=IisApp,value=amrsherif-002-site4
 
   deploy-ftp:
     needs: build-and-publish
@@ -111,7 +110,7 @@ jobs:
           password: "@mrSherif2"
           protocol: ftps
           port: 21
-          local-dir: /publish/
+          local-dir: publish/
           server-dir: /e-commerce/
           timeout: 120000
           exclude: |
