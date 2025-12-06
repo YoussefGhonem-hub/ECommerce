@@ -30,9 +30,6 @@ jobs:
             Write-Host "Found project: $($proj.FullName)"
             echo "BUILD_TARGET=$($proj.FullName)" >> $env:GITHUB_ENV
           }
-          $pub = Join-Path $pwd "publish"
-          New-Item -ItemType Directory -Force -Path $pub | Out-Null
-          echo "PUBLISH_DIR=$pub" >> $env:GITHUB_ENV
 
       - name: Restore
         shell: pwsh
@@ -42,15 +39,9 @@ jobs:
         shell: pwsh
         run: dotnet build "$env:BUILD_TARGET" --configuration Release --no-restore
 
-      - name: Publish (framework-dependent)
+      - name: Publish (to default bin/Release/net8.0/publish)
         shell: pwsh
-        run: dotnet publish "$env:BUILD_TARGET" --configuration Release --output "$env:PUBLISH_DIR"
-
-      - name: Upload published artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: published-output
-          path: publish
+        run: dotnet publish "$env:BUILD_TARGET" --configuration Release
 
   deploy-msdeploy:
     needs: build-and-publish
@@ -58,12 +49,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Download published artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: published-output
-          path: publish
 
       - name: Verify msdeploy is available
         shell: pwsh
@@ -74,8 +59,19 @@ jobs:
           )
           $msdeploy = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $msdeploy) { throw "msdeploy.exe not found." }
-          Write-Host "Using msdeploy: $msdeploy"
           echo "MSDEPLOY_PATH=$msdeploy" >> $env:GITHUB_ENV
+
+      - name: Deploy using MSDeploy (from ECommerce.Api publish folder)
+        shell: pwsh
+        run: |
+          $publishPath = (Resolve-Path "./ECommerce.Api/bin/Release/net8.0/publish").Path
+          & $env:MSDEPLOY_PATH `
+            -verb:sync `
+            -source:contentPath=$publishPath `
+            -dest:iisApp=amrsherif-002-site4,ComputerName=https://win6054.site4now.net:8172/msdeploy.axd?site=amrsherif-002-site4,UserName=amrsherif-002,Password=@mrSherif2,AuthType=Basic,includeAcls=False `
+            -enableRule:DoNotDelete `
+            -allowUntrusted
+
   deploy-ftp:
     needs: build-and-publish
     runs-on: ubuntu-latest
@@ -83,13 +79,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download published artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: published-output
-          path: publish
-
-      - name: Deploy using FTP
+      - name: Deploy using FTP (from ECommerce.Api publish folder)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: win6054.site4now.net
@@ -97,7 +87,7 @@ jobs:
           password: "@mrSherif2"
           protocol: ftps
           port: 21
-          local-dir: publish/
+          local-dir: ECommerce.Api/bin/Release/net8.0/publish/
           server-dir: /e-commerce/
           timeout: 120000
           exclude: |
