@@ -1,4 +1,4 @@
-name: FTP Deploy (Self-contained)
+name: FTP Deploy (Self-contained 32-bit)
 
 on:
   push:
@@ -7,7 +7,10 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # Option A: GitHub-hosted Windows
+    runs-on: windows-latest
+    # Option B: self-hosted runner (uncomment below and comment windows-latest)
+    # runs-on: self-hosted
 
     steps:
       - name: Checkout
@@ -24,10 +27,12 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
-      - name: Publish self-contained (win-x64, single-file)
+      - name: Publish self-contained (win-x86)
         run: |
-          dotnet publish src/ECommerce.Api/ECommerce.Api.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o ./publish/win-x64
-          ls -la ./publish/win-x64
+          dotnet publish src/ECommerce.Api/ECommerce.Api.csproj -c Release -r win-x86 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o ./publish/win-x86
+          if [ -f src/ECommerce.Api/web.config ]; then
+            cp src/ECommerce.Api/web.config ./publish/win-x86/web.config
+          fi
 
       - name: Create app_offline.htm to stop app
         run: |
@@ -46,13 +51,10 @@ jobs:
           passive: true
           server-dir: /e-commerce/
 
-      - name: Wait for app to stop
-        run: sleep 8
-
-      - name: FTP Deploy self-contained build
+      - name: FTP Deploy self-contained build (win-x86)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
-          local-dir: ./publish/win-x64/
+          local-dir: ./publish/win-x86/
           server: win6054.site4now.net
           username: amrsherif-002
           password: "@mrSherif2"
@@ -60,7 +62,7 @@ jobs:
           port: 21
           passive: true
           server-dir: /e-commerce/
-          dangerous-clean-slate: true     # removes app_offline.htm and stale files not in ./publish
+          dangerous-clean-slate: true
           exclude: |
             **/.git*
             **/.github/**
